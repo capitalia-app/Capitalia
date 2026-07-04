@@ -649,6 +649,149 @@ h1 {
   font-weight: 760;
 }
 
+.accounts-panel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  animation: rise-in 640ms ease both 80ms;
+}
+
+.accounts-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.accounts-heading h2 {
+  max-width: 12ch;
+}
+
+.accounts-heading > strong {
+  color: var(--gold-soft);
+  font-size: clamp(1.08rem, 4.8vw, 1.5rem);
+  line-height: 1;
+  text-align: right;
+}
+
+.panel-status,
+.empty-state-card p {
+  margin: 0;
+  color: rgba(244, 239, 228, 0.58);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.empty-state-card,
+.account-form {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(244, 239, 228, 0.12);
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(244, 239, 228, 0.08);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(20px);
+}
+
+.empty-state-card span {
+  color: var(--paper);
+  font-size: 1.08rem;
+  font-weight: 820;
+}
+
+.account-list {
+  display: grid;
+  gap: 10px;
+}
+
+.account-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 76px;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(244, 239, 228, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.account-row div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.account-row div:last-child {
+  justify-items: end;
+  text-align: right;
+}
+
+.account-row strong {
+  overflow-wrap: anywhere;
+  color: var(--paper);
+  font-size: 0.98rem;
+}
+
+.account-row span,
+.account-row small {
+  color: rgba(244, 239, 228, 0.52);
+  font-size: 0.78rem;
+  font-weight: 720;
+}
+
+.account-row small {
+  color: var(--gold-soft);
+}
+
+.account-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.account-form label > span {
+  color: rgba(244, 239, 228, 0.56);
+  font-size: 0.72rem;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.account-form input,
+.account-form select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(244, 239, 228, 0.16);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--paper);
+  background: rgba(7, 12, 16, 0.56);
+  font: inherit;
+  outline: none;
+}
+
+.account-form select option {
+  color: var(--ink);
+}
+
+.account-form input:focus,
+.account-form select:focus {
+  border-color: rgba(196, 161, 90, 0.62);
+  box-shadow: 0 0 0 3px rgba(196, 161, 90, 0.14);
+}
+
+.account-form__grid {
+  display: grid;
+  grid-template-columns: 0.7fr 1fr;
+  gap: 10px;
+}
+
+.account-form__actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
 .goal-preview-card {
   display: grid;
   gap: 14px;

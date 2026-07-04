@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { FinancialAccountsPanel } from '@/features/finance/components/FinancialAccountsPanel';
 import { BrandMark } from '@/features/onboarding/components/BrandMark';
 import { ExperienceFrame } from '@/features/onboarding/components/ExperienceFrame';
 
@@ -8,7 +9,7 @@ type AuthenticatedDashboardProps = {
   userEmail?: string | null;
 };
 
-type DashboardTab = 'home' | 'assets' | 'goals';
+type DashboardTab = 'home' | 'accounts' | 'assets' | 'goals';
 
 const summaryCards = [
   {
@@ -114,6 +115,10 @@ export function AuthenticatedDashboard({
   const animatedNetWorth = useAnimatedAmount(124580);
 
   const tabContent = useMemo(() => {
+    if (activeTab === 'accounts') {
+      return <FinancialAccountsPanel />;
+    }
+
     if (activeTab === 'assets') {
       return <AssetsPanel />;
     }
@@ -130,7 +135,7 @@ export function AuthenticatedDashboard({
       <header className="dashboard-header">
         <BrandMark />
         <div className="dashboard-session">
-          {userEmail ? <span>Sesión Supabase activa: {userEmail}</span> : null}
+          {userEmail ? <span>Sesion Supabase activa: {userEmail}</span> : null}
           {onSignOut ? (
             <button className="text-link" onClick={onSignOut} type="button">
               Salir
@@ -146,6 +151,12 @@ export function AuthenticatedDashboard({
           activeTab={activeTab}
           label="Inicio"
           tab="home"
+          onSelect={setActiveTab}
+        />
+        <TabButton
+          activeTab={activeTab}
+          label="Cuentas"
+          tab="accounts"
           onSelect={setActiveTab}
         />
         <TabButton

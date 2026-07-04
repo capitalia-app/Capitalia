@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { AuthScreen } from '@/features/onboarding/components/AuthScreen';
+import { DemoDashboard } from '@/features/onboarding/components/DemoDashboard';
 import { OnboardingScreen } from '@/features/onboarding/components/OnboardingScreen';
 import { SplashScreen } from '@/features/onboarding/components/SplashScreen';
 import { WelcomeScreen } from '@/features/onboarding/components/WelcomeScreen';
 
-type ExperienceStep = 'splash' | 'welcome' | 'signup' | 'signin' | 'onboarding';
+type ExperienceStep =
+  'splash' | 'welcome' | 'signup' | 'signin' | 'onboarding' | 'dashboard';
 
 const onboardingPanels = [
   {
@@ -94,6 +96,10 @@ export function OnboardingExperience() {
     );
   }
 
+  if (step === 'dashboard') {
+    return <DemoDashboard onBack={() => setStep('welcome')} />;
+  }
+
   return (
     <WelcomeScreen
       onCreateAccount={() => {
@@ -105,8 +111,7 @@ export function OnboardingExperience() {
         setStep('signin');
       }}
       onPreview={() => {
-        setPanelIndex(0);
-        setStep('onboarding');
+        setStep('dashboard');
       }}
     />
   );

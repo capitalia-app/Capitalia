@@ -3,11 +3,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { BrandMark } from '@/features/onboarding/components/BrandMark';
 import { ExperienceFrame } from '@/features/onboarding/components/ExperienceFrame';
 
-type DemoDashboardProps = {
-  onBack: () => void;
+type AuthenticatedDashboardProps = {
+  onSignOut?: () => void;
+  userEmail?: string | null;
 };
 
-type DemoTab = 'home' | 'assets' | 'goals';
+type DashboardTab = 'home' | 'assets' | 'goals';
 
 const summaryCards = [
   {
@@ -105,8 +106,11 @@ function formatEuro(value: number) {
   }).format(value);
 }
 
-export function DemoDashboard({ onBack }: DemoDashboardProps) {
-  const [activeTab, setActiveTab] = useState<DemoTab>('home');
+export function AuthenticatedDashboard({
+  onSignOut,
+  userEmail
+}: AuthenticatedDashboardProps) {
+  const [activeTab, setActiveTab] = useState<DashboardTab>('home');
   const animatedNetWorth = useAnimatedAmount(124580);
 
   const tabContent = useMemo(() => {
@@ -124,20 +128,20 @@ export function DemoDashboard({ onBack }: DemoDashboardProps) {
   return (
     <ExperienceFrame className="dashboard-screen">
       <header className="dashboard-header">
-        <button
-          className="icon-button"
-          onClick={onBack}
-          type="button"
-          aria-label="Volver"
-        >
-          <span aria-hidden="true">{'<'}</span>
-        </button>
         <BrandMark />
+        <div className="dashboard-session">
+          {userEmail ? <span>Sesión Supabase activa: {userEmail}</span> : null}
+          {onSignOut ? (
+            <button className="text-link" onClick={onSignOut} type="button">
+              Salir
+            </button>
+          ) : null}
+        </div>
       </header>
 
       {tabContent}
 
-      <nav className="mobile-tab-bar" aria-label="Navegacion demo">
+      <nav className="mobile-tab-bar" aria-label="Navegacion">
         <TabButton
           activeTab={activeTab}
           label="Inicio"
@@ -162,10 +166,10 @@ export function DemoDashboard({ onBack }: DemoDashboardProps) {
 }
 
 type TabButtonProps = {
-  activeTab: DemoTab;
+  activeTab: DashboardTab;
   label: string;
-  tab: DemoTab;
-  onSelect: (tab: DemoTab) => void;
+  tab: DashboardTab;
+  onSelect: (tab: DashboardTab) => void;
 };
 
 function TabButton({ activeTab, label, onSelect, tab }: TabButtonProps) {
@@ -266,7 +270,7 @@ function AssetsPanel() {
 
 function GoalsPanel() {
   return (
-    <section className="assets-panel" aria-label="Objetivos demo">
+    <section className="assets-panel" aria-label="Objetivos">
       <div className="section-heading">
         <p className="eyebrow">Objetivos</p>
         <h2>Fondo de libertad</h2>

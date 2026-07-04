@@ -5,12 +5,12 @@ import { ExperienceFrame } from '@/features/onboarding/components/ExperienceFram
 type WelcomeScreenProps = {
   onCreateAccount: () => void;
   onSignIn: () => void;
-  onPreview: () => void;
+  onStartOnboarding: () => void;
 };
 
 export function WelcomeScreen({
   onCreateAccount,
-  onPreview,
+  onStartOnboarding,
   onSignIn
 }: WelcomeScreenProps) {
   return (
@@ -45,7 +45,7 @@ export function WelcomeScreen({
 
       <footer className="action-stack">
         <ActionButton onClick={onCreateAccount}>Crear cuenta</ActionButton>
-        <ActionButton onClick={onPreview} variant="secondary">
+        <ActionButton onClick={onStartOnboarding} variant="secondary">
           Ver experiencia
         </ActionButton>
       </footer>

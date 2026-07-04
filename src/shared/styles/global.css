@@ -308,6 +308,23 @@ h1 {
   animation: rise-in 560ms ease both;
 }
 
+.dashboard-session {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dashboard-session > span {
+  max-width: 11rem;
+  overflow: hidden;
+  color: rgba(244, 239, 228, 0.54);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dashboard-hero {
   display: grid;
   gap: 10px;
@@ -681,6 +698,12 @@ h1 {
   transform: scale(0.98);
 }
 
+.action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  transform: none;
+}
+
 .action-button--primary {
   color: var(--ink);
   background: var(--gold);
@@ -798,6 +821,25 @@ h1 {
 .auth-switch {
   justify-self: center;
   margin-top: 18px;
+}
+
+.auth-message {
+  margin: 2px 0;
+  border: 1px solid rgba(16, 24, 32, 0.08);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.auth-message--error {
+  color: #7a2f38;
+  background: rgba(122, 63, 70, 0.1);
+}
+
+.auth-message--success {
+  color: #405f55;
+  background: rgba(95, 120, 111, 0.12);
 }
 
 .signal-card {

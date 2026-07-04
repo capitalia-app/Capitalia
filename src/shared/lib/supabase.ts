@@ -7,6 +7,9 @@ const supabaseAnonKey = env.supabaseAnonKey;
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
+console.info('SUPABASE URL loaded', Boolean(supabaseUrl));
+console.info('SUPABASE ANON KEY loaded', Boolean(supabaseAnonKey));
+
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {

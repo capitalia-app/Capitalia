@@ -5,7 +5,8 @@ import {
   AuthScreen,
   type AuthFormValues
 } from '@/features/onboarding/components/AuthScreen';
-import { DemoDashboard } from '@/features/onboarding/components/DemoDashboard';
+import { AuthenticatedDashboard } from '@/features/onboarding/components/AuthenticatedDashboard';
+import { ConfigurationErrorScreen } from '@/features/onboarding/components/ConfigurationErrorScreen';
 import { OnboardingScreen } from '@/features/onboarding/components/OnboardingScreen';
 import { SplashScreen } from '@/features/onboarding/components/SplashScreen';
 import { WelcomeScreen } from '@/features/onboarding/components/WelcomeScreen';
@@ -65,7 +66,7 @@ export function OnboardingExperience() {
           return;
         }
 
-        if (currentSession) {
+        if (currentSession?.user) {
           await ensureSessionFoundation(currentSession);
         }
 
@@ -73,7 +74,7 @@ export function OnboardingExperience() {
           return;
         }
 
-        setSession(currentSession);
+        setSession(currentSession?.user ? currentSession : null);
         setStep('welcome');
       } catch (error) {
         if (isMounted) {
@@ -92,7 +93,7 @@ export function OnboardingExperience() {
     }, 1100);
 
     const unsubscribe = onAuthSessionChange((nextSession) => {
-      setSession(nextSession);
+      void syncAuthSession(nextSession);
     });
 
     return () => {
@@ -101,6 +102,24 @@ export function OnboardingExperience() {
       unsubscribe();
     };
   }, []);
+
+  async function syncAuthSession(nextSession: Session | null) {
+    if (!nextSession?.user) {
+      setSession(null);
+      return;
+    }
+
+    try {
+      await ensureSessionFoundation(nextSession);
+      setSession(nextSession);
+    } catch (error) {
+      const message = getAuthErrorMessage(error);
+
+      console.info('auth error', message);
+      setSession(null);
+      setAuthError(message);
+    }
+  }
 
   const activePanel = onboardingPanels[panelIndex] ?? onboardingPanels[0];
   const isLastPanel = panelIndex === onboardingPanels.length - 1;
@@ -138,10 +157,13 @@ export function OnboardingExperience() {
         return;
       }
 
-      setSession(result.session);
+      setSession(result.session.user ? result.session : null);
       setAuthSuccess('Sesion iniciada.');
     } catch (error) {
-      setAuthError(getAuthErrorMessage(error));
+      const message = getAuthErrorMessage(error);
+
+      console.info('auth error', message);
+      setAuthError(message);
     } finally {
       setIsAuthLoading(false);
     }
@@ -168,9 +190,13 @@ export function OnboardingExperience() {
     return <SplashScreen onFinish={() => setStep('welcome')} />;
   }
 
-  if (session) {
+  if (!isSupabaseConfigured) {
+    return <ConfigurationErrorScreen />;
+  }
+
+  if (session?.user) {
     return (
-      <DemoDashboard
+      <AuthenticatedDashboard
         onSignOut={() => {
           void handleSignOut();
         }}
@@ -226,9 +252,6 @@ export function OnboardingExperience() {
 
   return (
     <WelcomeScreen
-      environmentMessage={
-        isSupabaseConfigured ? null : 'Faltan VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.'
-      }
       onCreateAccount={() => {
         setAuthError(null);
         setAuthSuccess(null);
@@ -241,7 +264,7 @@ export function OnboardingExperience() {
         setPanelIndex(0);
         setStep('signin');
       }}
-      onPreview={() => {
+      onStartOnboarding={() => {
         setPanelIndex(0);
         setStep('onboarding');
       }}

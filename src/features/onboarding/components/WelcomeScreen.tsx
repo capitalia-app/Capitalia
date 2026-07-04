@@ -3,12 +3,14 @@ import { BrandMark } from '@/features/onboarding/components/BrandMark';
 import { ExperienceFrame } from '@/features/onboarding/components/ExperienceFrame';
 
 type WelcomeScreenProps = {
+  environmentMessage?: string | null;
   onCreateAccount: () => void;
   onSignIn: () => void;
   onPreview: () => void;
 };
 
 export function WelcomeScreen({
+  environmentMessage,
   onCreateAccount,
   onPreview,
   onSignIn
@@ -44,6 +46,9 @@ export function WelcomeScreen({
       </section>
 
       <footer className="action-stack">
+        {environmentMessage ? (
+          <p className="auth-message auth-message--error">{environmentMessage}</p>
+        ) : null}
         <ActionButton onClick={onCreateAccount}>Crear cuenta</ActionButton>
         <ActionButton onClick={onPreview} variant="secondary">
           Ver experiencia

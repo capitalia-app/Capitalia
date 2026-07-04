@@ -792,6 +792,147 @@ h1 {
   align-items: center;
 }
 
+.csv-import-panel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  animation: rise-in 640ms ease both 80ms;
+}
+
+.csv-import-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(244, 239, 228, 0.12);
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(244, 239, 228, 0.08);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(20px);
+}
+
+.csv-import-card label {
+  display: grid;
+  gap: 7px;
+}
+
+.csv-import-card label > span {
+  color: rgba(244, 239, 228, 0.56);
+  font-size: 0.72rem;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.csv-import-card select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(244, 239, 228, 0.16);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--paper);
+  background: rgba(7, 12, 16, 0.56);
+  font: inherit;
+  outline: none;
+}
+
+.csv-import-card select option {
+  color: var(--ink);
+}
+
+.file-drop {
+  position: relative;
+  overflow: hidden;
+  min-height: 104px;
+  place-items: center;
+  border: 1px dashed rgba(196, 161, 90, 0.42);
+  border-radius: 8px;
+  padding: 18px;
+  background: rgba(196, 161, 90, 0.08);
+  text-align: center;
+}
+
+.file-drop span {
+  color: var(--paper);
+  font-size: 1rem;
+  font-weight: 820;
+  text-transform: none;
+}
+
+.file-drop small {
+  color: rgba(244, 239, 228, 0.52);
+  font-size: 0.8rem;
+}
+
+.file-drop input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.csv-preview-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(244, 239, 228, 0.08);
+}
+
+.csv-preview-summary span {
+  color: rgba(244, 239, 228, 0.58);
+  font-size: 0.86rem;
+  font-weight: 720;
+}
+
+.csv-preview-summary strong {
+  color: var(--gold-soft);
+  text-align: right;
+}
+
+.csv-preview-list {
+  display: grid;
+  gap: 9px;
+}
+
+.csv-preview-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(244, 239, 228, 0.07);
+}
+
+.csv-preview-row div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.csv-preview-row strong {
+  overflow-wrap: anywhere;
+  color: var(--paper);
+  font-size: 0.9rem;
+}
+
+.csv-preview-row > strong {
+  text-align: right;
+}
+
+.csv-preview-row span {
+  color: rgba(244, 239, 228, 0.52);
+  font-size: 0.76rem;
+  font-weight: 720;
+}
+
+.csv-preview-row .is-positive {
+  color: var(--sage);
+}
+
 .goal-preview-card {
   display: grid;
   gap: 14px;

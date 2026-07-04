@@ -19,8 +19,7 @@ import {
 } from '@/features/onboarding/lib/auth';
 import { isSupabaseConfigured } from '@/shared/lib/supabase';
 
-type ExperienceStep =
-  'splash' | 'welcome' | 'signup' | 'signin' | 'onboarding' | 'dashboard';
+type ExperienceStep = 'splash' | 'welcome' | 'signup' | 'signin' | 'onboarding';
 
 const onboardingPanels = [
   {
@@ -75,7 +74,7 @@ export function OnboardingExperience() {
         }
 
         setSession(currentSession);
-        setStep(currentSession ? 'dashboard' : 'welcome');
+        setStep('welcome');
       } catch (error) {
         if (isMounted) {
           setAuthError(getAuthErrorMessage(error));
@@ -94,10 +93,6 @@ export function OnboardingExperience() {
 
     const unsubscribe = onAuthSessionChange((nextSession) => {
       setSession(nextSession);
-
-      if (nextSession) {
-        setStep('dashboard');
-      }
     });
 
     return () => {
@@ -145,7 +140,6 @@ export function OnboardingExperience() {
 
       setSession(result.session);
       setAuthSuccess('Sesion iniciada.');
-      setStep('dashboard');
     } catch (error) {
       setAuthError(getAuthErrorMessage(error));
     } finally {
@@ -230,12 +224,11 @@ export function OnboardingExperience() {
     );
   }
 
-  if (step === 'dashboard') {
-    return <DemoDashboard onBack={() => setStep('welcome')} />;
-  }
-
   return (
     <WelcomeScreen
+      environmentMessage={
+        isSupabaseConfigured ? null : 'Faltan VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.'
+      }
       onCreateAccount={() => {
         setAuthError(null);
         setAuthSuccess(null);
@@ -249,7 +242,8 @@ export function OnboardingExperience() {
         setStep('signin');
       }}
       onPreview={() => {
-        setStep('dashboard');
+        setPanelIndex(0);
+        setStep('onboarding');
       }}
     />
   );

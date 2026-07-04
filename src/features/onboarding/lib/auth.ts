@@ -22,14 +22,18 @@ export type AuthResult =
 
 export async function getCurrentSession() {
   if (!supabase) {
+    devLog('session no session', 'Supabase is not configured');
     return null;
   }
 
   const { data, error } = await supabase.auth.getSession();
 
   if (error) {
+    devLog('session error', error.message);
     throw error;
   }
+
+  devLog(data.session ? 'session exists' : 'session no session');
 
   return data.session;
 }
@@ -40,6 +44,7 @@ export function onAuthSessionChange(callback: (session: Session | null) => void)
   }
 
   const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    devLog(session ? 'session exists' : 'session no session', _event);
     callback(session);
   });
 
@@ -67,16 +72,20 @@ export async function signUpWithEmail(params: {
   });
 
   if (error) {
+    devLog('login error', error.message);
     throw error;
   }
 
   if (!data.session) {
+    devLog('login success', 'signup requires email confirmation');
     return {
       status: 'confirmation_required'
     };
   }
 
   await ensureUserFoundation(data.session.user, params.fullName);
+
+  devLog('login success', 'signup returned an active session');
 
   return {
     status: 'authenticated',
@@ -98,14 +107,18 @@ export async function signInWithEmail(params: {
   });
 
   if (error) {
+    devLog('login error', error.message);
     throw error;
   }
 
   if (!data.session) {
+    devLog('login error', 'signInWithPassword returned no session');
     throw new Error('No se pudo iniciar sesion.');
   }
 
   await ensureUserFoundation(data.user);
+
+  devLog('login success', data.user.email);
 
   return {
     status: 'authenticated',
@@ -220,4 +233,17 @@ function getUserMetadataValue(user: User, key: string) {
   const value = metadata[key];
 
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function devLog(event: string, details?: unknown) {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  if (details) {
+    console.info(`[Capitalia Auth] ${event}`, details);
+    return;
+  }
+
+  console.info(`[Capitalia Auth] ${event}`);
 }

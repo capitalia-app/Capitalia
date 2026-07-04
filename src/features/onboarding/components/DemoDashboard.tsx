@@ -4,7 +4,6 @@ import { BrandMark } from '@/features/onboarding/components/BrandMark';
 import { ExperienceFrame } from '@/features/onboarding/components/ExperienceFrame';
 
 type DemoDashboardProps = {
-  onBack?: () => void;
   onSignOut?: () => void;
   userEmail?: string | null;
 };
@@ -107,7 +106,7 @@ function formatEuro(value: number) {
   }).format(value);
 }
 
-export function DemoDashboard({ onBack, onSignOut, userEmail }: DemoDashboardProps) {
+export function DemoDashboard({ onSignOut, userEmail }: DemoDashboardProps) {
   const [activeTab, setActiveTab] = useState<DemoTab>('home');
   const animatedNetWorth = useAnimatedAmount(124580);
 
@@ -126,27 +125,14 @@ export function DemoDashboard({ onBack, onSignOut, userEmail }: DemoDashboardPro
   return (
     <ExperienceFrame className="dashboard-screen">
       <header className="dashboard-header">
-        {onBack ? (
-          <button
-            className="icon-button"
-            onClick={onBack}
-            type="button"
-            aria-label="Volver"
-          >
-            <span aria-hidden="true">{'<'}</span>
-          </button>
-        ) : (
-          <BrandMark />
-        )}
+        <BrandMark />
         <div className="dashboard-session">
           {userEmail ? <span>{userEmail}</span> : null}
           {onSignOut ? (
             <button className="text-link" onClick={onSignOut} type="button">
               Salir
             </button>
-          ) : (
-            <BrandMark />
-          )}
+          ) : null}
         </div>
       </header>
 

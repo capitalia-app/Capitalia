@@ -111,3 +111,32 @@ Do not make manual schema changes in the Supabase dashboard.
 
 The project is prepared for Vercel deployment. Required environment variables should be
 configured in Vercel once Supabase credentials exist.
+
+## Infrastructure Flow
+
+Capitalia's target delivery flow is:
+
+```text
+Codex
+  -> GitHub
+  -> GitHub Actions
+  -> Supabase
+  -> Vercel
+```
+
+Codex works on task branches and pushes reviewed commits to GitHub. GitHub Actions runs
+quality checks and the Supabase workflow. The Supabase workflow validates migrations
+against a local database, lints the resulting schema, links the hosted project using
+GitHub secrets and prepares `supabase db push` for `main`. Vercel deploys the frontend
+from GitHub after the code is merged.
+
+Required GitHub secrets for Supabase automation:
+
+```text
+SUPABASE_ACCESS_TOKEN
+SUPABASE_PROJECT_REF
+```
+
+No real secret values should be committed to the repository. `SUPABASE_ACCESS_TOKEN` is a
+Supabase personal access token used by the CLI in CI. `SUPABASE_PROJECT_REF` is the hosted
+project reference from the Supabase dashboard URL.

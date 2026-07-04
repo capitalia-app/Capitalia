@@ -1,0 +1,41 @@
+name: Supabase
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  migrations:
+    name: Validate and prepare database migrations
+    runs-on: ubuntu-latest
+
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      - name: Check Supabase CLI
+        run: supabase --version
+
+      - name: Start local database and apply migrations
+        run: supabase db start
+
+      - name: Lint local database schema
+        run: supabase db lint
+
+      - name: Link Supabase project
+        if: ${{ env.SUPABASE_PROJECT_REF != '' }}
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF" --yes
+
+      - name: Push migrations to Supabase
+        if: ${{ env.SUPABASE_PROJECT_REF != '' }}
+        run: supabase db push --yes

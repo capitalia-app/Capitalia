@@ -80,7 +80,10 @@ Flujo manual recomendado:
 
 ## Automatizacion Futura
 
-Cuando el proyecto tenga Supabase CLI y entornos definidos, el flujo objetivo sera:
+El proyecto incluye Supabase CLI, `supabase/config.toml` y el workflow
+`.github/workflows/supabase.yml`.
+
+El flujo objetivo es:
 
 1. Desarrollar migraciones localmente.
 2. Validarlas con una base Supabase local o de staging.
@@ -95,10 +98,41 @@ GitHub Actions deberia encargarse de:
 - Ejecutar `npm run lint`.
 - Ejecutar `npm run typecheck`.
 - Ejecutar `npm run build`.
-- Validar migraciones con Supabase CLI cuando este configurado.
+- Instalar Supabase CLI mediante `supabase/setup-cli`.
+- Aplicar las migraciones en una base local con `supabase db start`.
+- Ejecutar `supabase db lint`.
+- En `main`, enlazar el proyecto remoto con `SUPABASE_PROJECT_REF`.
+- Preparar `supabase db push --yes` usando `SUPABASE_ACCESS_TOKEN`.
 
 La aplicacion de migraciones a produccion debe requerir aprobacion manual hasta que haya
 suficiente confianza operacional.
+
+## Secrets de GitHub Para Supabase
+
+Configurar estos secrets en:
+
+```text
+GitHub -> Repository -> Settings -> Secrets and variables -> Actions
+```
+
+Secrets requeridos:
+
+```text
+SUPABASE_ACCESS_TOKEN
+SUPABASE_PROJECT_REF
+```
+
+`SUPABASE_ACCESS_TOKEN` es un personal access token de Supabase para que el CLI pueda
+operar en CI sin ejecutar `supabase login`.
+
+`SUPABASE_PROJECT_REF` es el identificador del proyecto hospedado. Aparece en la URL del
+dashboard:
+
+```text
+https://supabase.com/dashboard/project/<project-ref>
+```
+
+No anadir valores reales al repositorio.
 
 ## Claves Que Nunca Deben Subirse A GitHub
 

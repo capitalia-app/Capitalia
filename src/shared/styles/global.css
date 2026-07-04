@@ -297,7 +297,7 @@ h1 {
 
 .dashboard-screen .experience-canvas {
   grid-template-rows: auto auto auto 1fr auto;
-  gap: 18px;
+  gap: 16px;
 }
 
 .dashboard-header {
@@ -310,9 +310,9 @@ h1 {
 
 .dashboard-hero {
   display: grid;
-  gap: 12px;
-  padding-top: 8px;
-  animation: rise-in 640ms ease both 80ms;
+  gap: 10px;
+  padding: 8px 0 2px;
+  animation: rise-in 640ms ease both 70ms;
 }
 
 .dashboard-hero .eyebrow {
@@ -321,7 +321,10 @@ h1 {
 
 .dashboard-hero span,
 .metric-card span,
-.portfolio-list span {
+.portfolio-list span,
+.section-heading span,
+.asset-row span,
+.goal-preview-card span {
   display: block;
   color: rgba(244, 239, 228, 0.58);
   font-size: 0.75rem;
@@ -333,23 +336,32 @@ h1 {
 .dashboard-hero strong {
   display: block;
   margin-top: 4px;
-  font-size: clamp(2.75rem, 14vw, 4.35rem);
-  line-height: 0.92;
+  font-size: clamp(3.15rem, 16vw, 4.85rem);
+  line-height: 0.88;
   letter-spacing: 0;
+  text-wrap: balance;
 }
 
-.dashboard-hero p:last-child {
+.dashboard-hero p {
   margin: 0;
+}
+
+.dashboard-hero p {
   color: var(--gold-soft);
-  font-size: 0.98rem;
+  font-size: clamp(1.02rem, 4.2vw, 1.22rem);
   font-weight: 700;
+}
+
+.dashboard-hero small {
+  color: rgba(244, 239, 228, 0.56);
+  font-size: 0.84rem;
+  font-weight: 720;
 }
 
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  animation: rise-in 700ms ease both 150ms;
 }
 
 .metric-card {
@@ -361,6 +373,15 @@ h1 {
   padding: 14px;
   background: rgba(244, 239, 228, 0.08);
   backdrop-filter: blur(18px);
+  animation: card-in 700ms cubic-bezier(0.2, 0.85, 0.2, 1) both;
+}
+
+.metric-card:nth-child(2) {
+  animation-delay: 90ms;
+}
+
+.metric-card:nth-child(3) {
+  animation-delay: 180ms;
 }
 
 .metric-card strong {
@@ -386,7 +407,7 @@ h1 {
   background: rgba(244, 239, 228, 0.08);
   box-shadow: var(--shadow);
   backdrop-filter: blur(20px);
-  animation: rise-in 760ms ease both 220ms;
+  animation: card-in 760ms cubic-bezier(0.2, 0.85, 0.2, 1) both 230ms;
 }
 
 .portfolio-chart {
@@ -395,29 +416,62 @@ h1 {
   place-items: center;
   aspect-ratio: 1;
   border-radius: 50%;
-  background:
-    radial-gradient(circle, #15212a 0 42%, transparent 43%),
-    conic-gradient(var(--gold) 0 52%, var(--sage) 52% 78%, var(--wine) 78% 100%);
+  filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.24));
 }
 
-.portfolio-chart span {
+.portfolio-chart::before {
   position: absolute;
-  width: 8px;
-  height: 8px;
+  inset: 0;
   border-radius: 50%;
-  background: var(--paper);
+  background: conic-gradient(
+    from -68deg,
+    var(--gold) 0 52%,
+    var(--sage) 52% 78%,
+    var(--wine) 78% 100%
+  );
+  mask: radial-gradient(circle, transparent 0 48%, #000 49%);
+  animation: donut-draw 1100ms cubic-bezier(0.2, 0.85, 0.2, 1) both;
+  content: '';
 }
 
-.portfolio-chart span:nth-child(1) {
-  transform: translate(30px, -48px);
+.portfolio-chart::after {
+  position: absolute;
+  inset: 14%;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(244, 239, 228, 0.12), transparent 42%),
+    rgba(16, 24, 32, 0.84);
+  content: '';
 }
 
-.portfolio-chart span:nth-child(2) {
-  transform: translate(-48px, 22px);
+.portfolio-chart__ring {
+  position: absolute;
+  inset: -7px;
+  border: 1px solid rgba(244, 239, 228, 0.08);
+  border-radius: 50%;
 }
 
-.portfolio-chart span:nth-child(3) {
-  transform: translate(40px, 42px);
+.portfolio-chart__core {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+}
+
+.portfolio-chart__core span {
+  color: rgba(244, 239, 228, 0.5);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.portfolio-chart__core strong {
+  color: var(--paper);
+  font-size: 1.25rem;
+  line-height: 1;
 }
 
 .portfolio-list {
@@ -426,9 +480,30 @@ h1 {
   align-content: center;
 }
 
-.portfolio-list div {
+.portfolio-list__item {
+  position: relative;
   display: grid;
   gap: 2px;
+  padding-left: 14px;
+}
+
+.portfolio-list__item::before {
+  position: absolute;
+  top: 5px;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold);
+  content: '';
+}
+
+.portfolio-list__item--sage::before {
+  background: var(--sage);
+}
+
+.portfolio-list__item--wine::before {
+  background: var(--wine);
 }
 
 .portfolio-list strong {
@@ -437,30 +512,150 @@ h1 {
 }
 
 .mobile-tab-bar {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  position: relative;
+  display: flex;
+  gap: 6px;
   min-height: 58px;
   border: 1px solid rgba(244, 239, 228, 0.12);
-  border-radius: 8px;
-  padding: 8px;
+  border-radius: 999px;
+  padding: 7px;
   background: rgba(7, 12, 16, 0.74);
   backdrop-filter: blur(22px);
   animation: rise-in 780ms ease both 280ms;
 }
 
 .mobile-tab-bar__item {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 42px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 999px;
   color: rgba(244, 239, 228, 0.56);
   background: transparent;
   font-size: 0.78rem;
   font-weight: 750;
+  transition:
+    color 180ms ease,
+    background 180ms ease,
+    transform 180ms ease;
 }
 
 .mobile-tab-bar__item--active {
   color: var(--ink);
   background: var(--gold);
+  box-shadow: 0 10px 24px rgba(196, 161, 90, 0.22);
+}
+
+.assets-panel {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  animation: rise-in 640ms ease both 80ms;
+}
+
+.section-heading {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.section-heading .eyebrow {
+  margin-bottom: 0;
+}
+
+.section-heading h2 {
+  max-width: 10ch;
+  margin: 0;
+  color: var(--paper);
+  font-size: clamp(2.4rem, 12vw, 4rem);
+  line-height: 0.94;
+  letter-spacing: 0;
+}
+
+.section-heading span {
+  color: var(--gold-soft);
+  font-size: 1rem;
+}
+
+.asset-list {
+  display: grid;
+  gap: 10px;
+}
+
+.asset-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 76px;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(244, 239, 228, 0.08);
+  backdrop-filter: blur(18px);
+  animation: card-in 680ms cubic-bezier(0.2, 0.85, 0.2, 1) both;
+}
+
+.asset-row:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.asset-row:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+.asset-row:nth-child(4) {
+  animation-delay: 240ms;
+}
+
+.asset-row div:last-child {
+  text-align: right;
+}
+
+.asset-row strong {
+  display: block;
+  color: var(--paper);
+  font-size: 0.98rem;
+  line-height: 1.15;
+}
+
+.asset-row small {
+  color: var(--gold-soft);
+  font-size: 0.8rem;
+  font-weight: 760;
+}
+
+.goal-preview-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  padding: 18px;
+  background: rgba(244, 239, 228, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.goal-preview-card strong {
+  color: var(--paper);
+  font-size: 1.2rem;
+}
+
+.goal-preview-card i {
+  display: block;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(244, 239, 228, 0.12);
+}
+
+.goal-preview-card b {
+  display: block;
+  width: 68%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--gold), var(--sage));
+  animation: draw-line 900ms ease both 180ms;
 }
 
 .action-button {
@@ -720,6 +915,30 @@ h1 {
   }
 }
 
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes donut-draw {
+  from {
+    opacity: 0;
+    transform: rotate(-28deg) scale(0.86);
+  }
+
+  to {
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -791,7 +1010,7 @@ h1 {
   }
 
   .dashboard-screen .experience-canvas {
-    grid-template-columns: minmax(0, 0.95fr) minmax(320px, 1.05fr);
+    grid-template-columns: minmax(0, 0.92fr) minmax(320px, 1.08fr);
     grid-template-rows: auto auto 1fr auto;
     gap: 24px;
   }
@@ -812,10 +1031,11 @@ h1 {
   }
 
   .dashboard-hero strong {
-    font-size: clamp(3.5rem, 6.5vw, 6.2rem);
+    font-size: clamp(4rem, 7vw, 6.6rem);
   }
 
-  .dashboard-hero p:last-child {
+  .dashboard-hero p,
+  .dashboard-hero small {
     align-self: end;
     padding-bottom: 8px;
   }
@@ -827,6 +1047,18 @@ h1 {
   .portfolio-card {
     align-self: stretch;
     grid-template-columns: 0.9fr 1fr;
+  }
+
+  .assets-panel {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 0.72fr) minmax(360px, 1fr);
+    gap: 32px;
+    align-items: start;
+  }
+
+  .asset-list,
+  .goal-preview-card {
+    align-self: end;
   }
 
   .mobile-tab-bar {
@@ -870,5 +1102,13 @@ h1 {
   .metric-card {
     min-height: 96px;
     padding: 12px;
+  }
+
+  .portfolio-card {
+    padding: 14px;
+  }
+
+  .asset-row {
+    min-height: 68px;
   }
 }

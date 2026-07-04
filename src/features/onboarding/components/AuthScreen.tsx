@@ -3,14 +3,31 @@ import { BrandMark } from '@/features/onboarding/components/BrandMark';
 import { ExperienceFrame } from '@/features/onboarding/components/ExperienceFrame';
 import { TextField } from '@/features/onboarding/components/TextField';
 
-type AuthScreenProps = {
-  mode: 'signup' | 'signin';
-  onBack: () => void;
-  onSwitchMode: () => void;
-  onContinue: () => void;
+export type AuthFormValues = {
+  fullName: string;
+  email: string;
+  password: string;
 };
 
-export function AuthScreen({ mode, onBack, onContinue, onSwitchMode }: AuthScreenProps) {
+type AuthScreenProps = {
+  mode: 'signup' | 'signin';
+  error: string | null;
+  isLoading: boolean;
+  successMessage: string | null;
+  onBack: () => void;
+  onSwitchMode: () => void;
+  onSubmit: (values: AuthFormValues) => void;
+};
+
+export function AuthScreen({
+  error,
+  isLoading,
+  mode,
+  onBack,
+  onSubmit,
+  onSwitchMode,
+  successMessage
+}: AuthScreenProps) {
   const isSignup = mode === 'signup';
 
   return (
@@ -22,7 +39,7 @@ export function AuthScreen({ mode, onBack, onContinue, onSwitchMode }: AuthScree
           type="button"
           aria-label="Volver"
         >
-          <span aria-hidden="true">‹</span>
+          <span aria-hidden="true">{'<'}</span>
         </button>
         <BrandMark />
       </header>
@@ -36,19 +53,69 @@ export function AuthScreen({ mode, onBack, onContinue, onSwitchMode }: AuthScree
         className="auth-form"
         onSubmit={(event) => {
           event.preventDefault();
-          onContinue();
+
+          const form = new FormData(event.currentTarget);
+          const values = {
+            fullName: getFormString(form, 'fullName'),
+            email: getFormString(form, 'email'),
+            password: getFormString(form, 'password')
+          };
+
+          onSubmit(values);
         }}
       >
-        {isSignup ? <TextField label="Nombre" placeholder="Alex" type="text" /> : null}
-        <TextField label="Email" placeholder="alex@capitalia.app" type="email" />
-        <TextField label="Clave" placeholder="••••••••" type="password" />
+        {isSignup ? (
+          <TextField
+            autoComplete="name"
+            label="Nombre"
+            name="fullName"
+            placeholder="Alex"
+            required
+            type="text"
+          />
+        ) : null}
+        <TextField
+          autoComplete="email"
+          label="Email"
+          name="email"
+          placeholder="alex@capitalia.app"
+          required
+          type="email"
+        />
+        <TextField
+          autoComplete={isSignup ? 'new-password' : 'current-password'}
+          label="Clave"
+          minLength={6}
+          name="password"
+          placeholder="********"
+          required
+          type="password"
+        />
 
-        <ActionButton type="submit">{isSignup ? 'Continuar' : 'Entrar'}</ActionButton>
+        {error ? <p className="auth-message auth-message--error">{error}</p> : null}
+        {successMessage ? (
+          <p className="auth-message auth-message--success">{successMessage}</p>
+        ) : null}
+
+        <ActionButton disabled={isLoading} type="submit">
+          {isLoading ? 'Conectando...' : isSignup ? 'Crear cuenta' : 'Entrar'}
+        </ActionButton>
       </form>
 
-      <button className="text-link auth-switch" onClick={onSwitchMode} type="button">
+      <button
+        className="text-link auth-switch"
+        disabled={isLoading}
+        onClick={onSwitchMode}
+        type="button"
+      >
         {isSignup ? 'Ya tengo cuenta' : 'Crear cuenta'}
       </button>
     </ExperienceFrame>
   );
+}
+
+function getFormString(form: FormData, key: string) {
+  const value = form.get(key);
+
+  return typeof value === 'string' ? value : '';
 }

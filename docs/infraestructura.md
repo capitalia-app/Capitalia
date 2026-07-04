@@ -98,11 +98,11 @@ GitHub Actions deberia encargarse de:
 - Ejecutar `npm run lint`.
 - Ejecutar `npm run typecheck`.
 - Ejecutar `npm run build`.
-- Instalar Supabase CLI mediante `supabase/setup-cli`.
-- Aplicar las migraciones en una base local con `supabase db start`.
-- Ejecutar `supabase db lint`.
+- Instalar dependencias con `npm ci`, incluyendo el paquete oficial `supabase`.
+- Aplicar las migraciones en una base local con `npx supabase db start`.
+- Ejecutar `npx supabase db lint`.
 - En `main`, enlazar el proyecto remoto con `SUPABASE_PROJECT_REF`.
-- Preparar `supabase db push --yes` usando `SUPABASE_ACCESS_TOKEN`.
+- Preparar `npx supabase db push --yes` usando `SUPABASE_ACCESS_TOKEN`.
 
 La aplicacion de migraciones a produccion debe requerir aprobacion manual hasta que haya
 suficiente confianza operacional.

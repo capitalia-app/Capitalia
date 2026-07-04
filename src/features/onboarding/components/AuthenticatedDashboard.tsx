@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { CsvImportPanel } from '@/features/finance/components/CsvImportPanel';
 import { FinancialAccountsPanel } from '@/features/finance/components/FinancialAccountsPanel';
 import { BrandMark } from '@/features/onboarding/components/BrandMark';
 import { ExperienceFrame } from '@/features/onboarding/components/ExperienceFrame';
@@ -9,7 +10,7 @@ type AuthenticatedDashboardProps = {
   userEmail?: string | null;
 };
 
-type DashboardTab = 'home' | 'accounts' | 'assets' | 'goals';
+type DashboardTab = 'home' | 'accounts' | 'import' | 'assets' | 'goals';
 
 const summaryCards = [
   {
@@ -119,6 +120,10 @@ export function AuthenticatedDashboard({
       return <FinancialAccountsPanel />;
     }
 
+    if (activeTab === 'import') {
+      return <CsvImportPanel />;
+    }
+
     if (activeTab === 'assets') {
       return <AssetsPanel />;
     }
@@ -157,6 +162,12 @@ export function AuthenticatedDashboard({
           activeTab={activeTab}
           label="Cuentas"
           tab="accounts"
+          onSelect={setActiveTab}
+        />
+        <TabButton
+          activeTab={activeTab}
+          label="Importar"
+          tab="import"
           onSelect={setActiveTab}
         />
         <TabButton

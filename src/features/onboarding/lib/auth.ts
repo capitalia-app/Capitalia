@@ -22,18 +22,18 @@ export type AuthResult =
 
 export async function getCurrentSession() {
   if (!supabase) {
-    devLog('session no session', 'Supabase is not configured');
+    authLog('session user', null);
     return null;
   }
 
   const { data, error } = await supabase.auth.getSession();
 
   if (error) {
-    devLog('session error', error.message);
+    authLog('auth error', error.message);
     throw error;
   }
 
-  devLog(data.session ? 'session exists' : 'session no session');
+  authLog('session user', data.session?.user?.email ?? null);
 
   return data.session;
 }
@@ -44,7 +44,7 @@ export function onAuthSessionChange(callback: (session: Session | null) => void)
   }
 
   const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-    devLog(session ? 'session exists' : 'session no session', _event);
+    authLog('session user', session?.user?.email ?? null);
     callback(session);
   });
 
@@ -60,6 +60,8 @@ export async function signUpWithEmail(params: {
     throw new Error('Supabase no esta configurado.');
   }
 
+  authLog('signUp called', params.email);
+
   const { data, error } = await supabase.auth.signUp({
     email: params.email,
     password: params.password,
@@ -72,12 +74,12 @@ export async function signUpWithEmail(params: {
   });
 
   if (error) {
-    devLog('login error', error.message);
+    authLog('auth error', error.message);
     throw error;
   }
 
   if (!data.session) {
-    devLog('login success', 'signup requires email confirmation');
+    authLog('session user', null);
     return {
       status: 'confirmation_required'
     };
@@ -85,7 +87,7 @@ export async function signUpWithEmail(params: {
 
   await ensureUserFoundation(data.session.user, params.fullName);
 
-  devLog('login success', 'signup returned an active session');
+  authLog('session user', data.session.user.email);
 
   return {
     status: 'authenticated',
@@ -101,24 +103,26 @@ export async function signInWithEmail(params: {
     throw new Error('Supabase no esta configurado.');
   }
 
+  authLog('signIn called', params.email);
+
   const { data, error } = await supabase.auth.signInWithPassword({
     email: params.email,
     password: params.password
   });
 
   if (error) {
-    devLog('login error', error.message);
+    authLog('auth error', error.message);
     throw error;
   }
 
   if (!data.session) {
-    devLog('login error', 'signInWithPassword returned no session');
+    authLog('auth error', 'signInWithPassword returned no session');
     throw new Error('No se pudo iniciar sesion.');
   }
 
   await ensureUserFoundation(data.user);
 
-  devLog('login success', data.user.email);
+  authLog('session user', data.user.email);
 
   return {
     status: 'authenticated',
@@ -235,15 +239,11 @@ function getUserMetadataValue(user: User, key: string) {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
-function devLog(event: string, details?: unknown) {
-  if (!import.meta.env.DEV) {
+function authLog(event: string, details?: unknown) {
+  if (details !== undefined) {
+    console.info(event, details);
     return;
   }
 
-  if (details) {
-    console.info(`[Capitalia Auth] ${event}`, details);
-    return;
-  }
-
-  console.info(`[Capitalia Auth] ${event}`);
+  console.info(event);
 }

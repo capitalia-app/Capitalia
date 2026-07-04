@@ -54,11 +54,25 @@ eventually behave like a high-quality installed assistant.
 ## Environment
 
 Copy `.env.example` to `.env.local` and fill in the values when a Supabase project exists.
+Vite only exposes variables prefixed with `VITE_` to browser code.
 
 ```bash
 VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
 VITE_APP_ENV=local
+```
+
+`VITE_SUPABASE_URL` is the public Supabase project URL.
+
+`VITE_SUPABASE_ANON_KEY` is the public anonymous client key. It is safe to use in the
+frontend only when Row Level Security is configured correctly. Never expose
+`SUPABASE_SERVICE_ROLE_KEY`, database passwords, OpenAI keys, Vercel tokens or provider
+secrets in frontend code or `VITE_*` variables.
+
+In Vercel, configure the same variables in:
+
+```text
+Project Settings -> Environment Variables
 ```
 
 ## Development

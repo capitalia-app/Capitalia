@@ -347,20 +347,20 @@ h1 {
 .app-drawer {
   position: fixed;
   top: 0;
-  right: 0;
+  left: 0;
   z-index: 50;
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 18px;
-  width: min(86vw, 360px);
+  width: min(88vw, 380px);
   height: 100dvh;
   padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
-  border-left: 1px solid rgba(244, 239, 228, 0.12);
+  border-right: 1px solid rgba(244, 239, 228, 0.12);
   background:
     linear-gradient(180deg, rgba(196, 161, 90, 0.12), transparent 34%),
     rgba(7, 12, 16, 0.96);
-  box-shadow: -28px 0 70px rgba(0, 0, 0, 0.34);
-  transform: translateX(100%);
+  box-shadow: 28px 0 70px rgba(0, 0, 0, 0.34);
+  transform: translateX(-100%);
   transition: transform 220ms ease;
 }
 
@@ -379,6 +379,7 @@ h1 {
   display: grid;
   align-content: start;
   gap: 8px;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -407,16 +408,16 @@ h1 {
   color: var(--paper);
   font-size: 0.98rem;
   font-weight: 820;
+  overflow-wrap: anywhere;
 }
 
 .drawer-nav__item small,
 .drawer-footer span {
-  overflow: hidden;
   color: rgba(244, 239, 228, 0.56);
   font-size: 0.76rem;
   font-weight: 720;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .drawer-footer {
@@ -1346,11 +1347,6 @@ h1 {
 
   .asset-list {
     align-self: end;
-  }
-
-  .app-drawer {
-    right: max(0px, calc((100vw - 1040px) / 2));
-    width: min(360px, 40vw);
   }
 
   .experience-frame--light .experience-canvas {

@@ -41,12 +41,44 @@ type RawImportRecord = {
   record_hash: string;
 };
 
-const bbvaColumnAliases = {
-  date: ['fecha operacion', 'fecha operación', 'fecha', 'f. operacion'],
-  description: ['concepto', 'descripcion', 'descripción', 'movimiento'],
-  amount: ['importe', 'cantidad'],
-  currency: ['divisa', 'moneda']
+type ImportSheet = {
+  name: string;
+  rows: string[][];
 };
+
+type HeaderMatch = {
+  headerIndex: number;
+  columns: {
+    valueDate: number;
+    date: number;
+    concept: number;
+    movement: number;
+    amount: number;
+    currency: number;
+  };
+};
+
+type BankImportAdapter = {
+  id: string;
+  label: string;
+  findHeader(rows: string[][]): HeaderMatch | null;
+  mapRow(params: {
+    row: string[];
+    columns: HeaderMatch['columns'];
+    headers: string[];
+    rowIndex: number;
+    fallbackCurrency: string;
+  }): Promise<ParsedCsvTransaction | null>;
+};
+
+const bbvaAdapter: BankImportAdapter = {
+  id: 'bbva_official',
+  label: 'BBVA',
+  findHeader: findBbvaHeader,
+  mapRow: mapBbvaRow
+};
+
+const bankImportAdapters = [bbvaAdapter];
 
 export async function getCsvImportContext() {
   const workspace = await getCurrentWorkspace();
@@ -59,64 +91,14 @@ export async function getCsvImportContext() {
 }
 
 export async function parseBbvaCsvFile(file: File, fallbackCurrency: string) {
-  const text = await file.text();
-  const rows = parseCsv(text);
+  const sheets = await readImportSheets(file);
+  const parsedImport = await parseWithAvailableAdapters(sheets, fallbackCurrency);
 
-  if (rows.length < 2) {
-    throw new Error('El CSV esta vacio o no contiene movimientos.');
+  if (parsedImport.transactions.length === 0) {
+    throw new Error('No se encontraron movimientos importables en el archivo.');
   }
 
-  const headers = rows[0]?.map(normalizeHeader) ?? [];
-  const indexes = resolveBbvaIndexes(headers);
-
-  if (!indexes) {
-    throw new Error(
-      'Formato CSV no reconocido. Por ahora Capitalia soporta CSV basico de BBVA con fecha, concepto e importe.'
-    );
-  }
-
-  const parsedRows = rows.slice(1).filter((row) => row.some((cell) => cell.trim()));
-  const transactions = await Promise.all(
-    parsedRows.map(async (row, index) => {
-      const date = parseDateCell(row[indexes.date]);
-      const description = (row[indexes.description] ?? '').trim();
-      const amount = parseAmountCell(row[indexes.amount]);
-      const currency = (row[indexes.currency] || fallbackCurrency || 'EUR')
-        .trim()
-        .toUpperCase();
-
-      if (!date || !description || !Number.isFinite(amount)) {
-        throw new Error(`No se pudo leer la fila ${index + 2} del CSV.`);
-      }
-
-      const transactionType = estimateTransactionType(description, amount);
-      const direction = amount >= 0 ? 'inflow' : 'outflow';
-      const fingerprint = await createTransactionFingerprint({
-        date,
-        description,
-        amount,
-        currency
-      });
-
-      return {
-        id: `${index}-${fingerprint}`,
-        date,
-        description,
-        amount,
-        currency,
-        direction,
-        transactionType,
-        fingerprint,
-        raw: createRawPayload(headers, row)
-      } satisfies ParsedCsvTransaction;
-    })
-  );
-
-  if (transactions.length === 0) {
-    throw new Error('No se encontraron movimientos importables en el CSV.');
-  }
-
-  return transactions;
+  return parsedImport.transactions;
 }
 
 export async function saveCsvImport(params: {
@@ -160,7 +142,7 @@ export async function saveCsvImport(params: {
       completed_at: new Date().toISOString(),
       metadata: {
         file_name: params.fileName,
-        parser: 'bbva_basic',
+        parser: 'bbva_official',
         total_rows: params.transactions.length,
         imported_rows: newTransactions.length,
         duplicate_rows: params.transactions.length - newTransactions.length
@@ -226,7 +208,7 @@ export async function saveCsvImport(params: {
       status: 'posted',
       transaction_type: transaction.transactionType,
       fingerprint: transaction.fingerprint,
-      confidence_score: 0.82
+      confidence_score: 0.92
     }))
   );
 
@@ -238,6 +220,169 @@ export async function saveCsvImport(params: {
     importedCount: newTransactions.length,
     duplicateCount: params.transactions.length - newTransactions.length
   } satisfies CsvSaveResult;
+}
+
+async function readImportSheets(file: File) {
+  if (isExcelFile(file)) {
+    const XLSX = await import('xlsx');
+    const workbook = XLSX.read(await file.arrayBuffer(), {
+      type: 'array',
+      cellDates: false,
+      raw: false
+    });
+
+    return workbook.SheetNames.map((sheetName) => {
+      const sheet = workbook.Sheets[sheetName];
+
+      if (!sheet) {
+        return null;
+      }
+
+      return {
+        name: sheetName,
+        rows: normalizeRows(
+          XLSX.utils.sheet_to_json<string[]>(sheet, {
+            header: 1,
+            blankrows: false,
+            defval: '',
+            raw: false
+          })
+        )
+      };
+    }).filter((sheet): sheet is ImportSheet => sheet !== null && sheet.rows.length > 0);
+  }
+
+  return [
+    {
+      name: file.name,
+      rows: parseCsv(await file.text())
+    }
+  ];
+}
+
+async function parseWithAvailableAdapters(
+  sheets: ImportSheet[],
+  fallbackCurrency: string
+) {
+  for (const adapter of bankImportAdapters) {
+    for (const sheet of sheets) {
+      const headerMatch = adapter.findHeader(sheet.rows);
+
+      if (!headerMatch) {
+        continue;
+      }
+
+      const headers = sheet.rows[headerMatch.headerIndex] ?? [];
+      const dataRows = sheet.rows
+        .slice(headerMatch.headerIndex + 1)
+        .filter((row) => row.some((cell) => cell.trim()));
+      const transactions = (
+        await Promise.all(
+          dataRows.map((row, rowIndex) =>
+            adapter.mapRow({
+              row,
+              columns: headerMatch.columns,
+              headers,
+              rowIndex,
+              fallbackCurrency
+            })
+          )
+        )
+      ).filter((transaction): transaction is ParsedCsvTransaction =>
+        Boolean(transaction)
+      );
+
+      if (transactions.length > 0) {
+        return {
+          adapter,
+          sheet,
+          transactions
+        };
+      }
+    }
+  }
+
+  throw new Error(
+    'Formato no reconocido. Capitalia espera el CSV o Excel oficial de BBVA con columnas Valor, Fecha, Concepto, Movimiento, Importe y Divisa.'
+  );
+}
+
+function findBbvaHeader(rows: string[][]) {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const normalizedRow = rows[rowIndex]?.map(normalizeHeader) ?? [];
+    const columns = {
+      valueDate: findExactColumn(normalizedRow, ['valor', 'fecha valor', 'f valor']),
+      date: findExactColumn(normalizedRow, ['fecha', 'fecha operacion']),
+      concept: findExactColumn(normalizedRow, ['concepto']),
+      movement: findExactColumn(normalizedRow, ['movimiento']),
+      amount: findExactColumn(normalizedRow, ['importe']),
+      currency: findExactColumn(normalizedRow, ['divisa', 'moneda'])
+    };
+
+    if (
+      columns.date !== -1 &&
+      columns.amount !== -1 &&
+      columns.currency !== -1 &&
+      (columns.concept !== -1 || columns.movement !== -1)
+    ) {
+      return {
+        headerIndex: rowIndex,
+        columns
+      } satisfies HeaderMatch;
+    }
+  }
+
+  return null;
+}
+
+async function mapBbvaRow(params: {
+  row: string[];
+  columns: HeaderMatch['columns'];
+  headers: string[];
+  rowIndex: number;
+  fallbackCurrency: string;
+}) {
+  const date = parseDateCell(getCell(params.row, params.columns.date));
+  const concept = getCell(params.row, params.columns.concept);
+  const movement = getCell(params.row, params.columns.movement);
+  const description = [concept, movement].filter(Boolean).join(' - ').trim();
+  const amount = parseAmountCell(getCell(params.row, params.columns.amount));
+  const currency = (
+    getCell(params.row, params.columns.currency) ||
+    params.fallbackCurrency ||
+    'EUR'
+  )
+    .trim()
+    .toUpperCase();
+
+  if (!date && !description && !Number.isFinite(amount)) {
+    return null;
+  }
+
+  if (!date || !description || !Number.isFinite(amount)) {
+    throw new Error(`No se pudo leer la fila ${params.rowIndex + 1} de BBVA.`);
+  }
+
+  const transactionType = estimateTransactionType(description, amount);
+  const direction = amount >= 0 ? 'inflow' : 'outflow';
+  const fingerprint = await createTransactionFingerprint({
+    date,
+    description,
+    amount,
+    currency
+  });
+
+  return {
+    id: `${params.rowIndex}-${fingerprint}`,
+    date,
+    description,
+    amount,
+    currency,
+    direction,
+    transactionType,
+    fingerprint,
+    raw: createRawPayload(params.headers, params.row)
+  } satisfies ParsedCsvTransaction;
 }
 
 function parseCsv(text: string) {
@@ -288,42 +433,60 @@ function parseCsv(text: string) {
     rows.push(currentRow);
   }
 
-  return rows.filter((row) => row.some((cell) => cell.length > 0));
+  return normalizeRows(rows);
 }
 
 function detectDelimiter(text: string) {
-  const firstLine = text.split(/\r?\n/).find((line) => line.trim()) ?? '';
+  const meaningfulLines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 15);
   const candidates = [';', ',', '\t'];
 
   return candidates.reduce((bestDelimiter, delimiter) => {
-    const bestCount = firstLine.split(bestDelimiter).length;
-    const candidateCount = firstLine.split(delimiter).length;
+    const bestCount = meaningfulLines.reduce(
+      (total, line) => total + line.split(bestDelimiter).length,
+      0
+    );
+    const candidateCount = meaningfulLines.reduce(
+      (total, line) => total + line.split(delimiter).length,
+      0
+    );
 
     return candidateCount > bestCount ? delimiter : bestDelimiter;
   }, ';');
 }
 
-function resolveBbvaIndexes(headers: string[]) {
-  const date = findColumn(headers, bbvaColumnAliases.date);
-  const description = findColumn(headers, bbvaColumnAliases.description);
-  const amount = findColumn(headers, bbvaColumnAliases.amount);
-  const currency = findColumn(headers, bbvaColumnAliases.currency);
-
-  if (date === -1 || description === -1 || amount === -1) {
-    return null;
-  }
-
-  return {
-    date,
-    description,
-    amount,
-    currency
-  };
+function normalizeRows(rows: unknown[][]) {
+  return rows
+    .map((row) => row.map((cell) => normalizeCellValue(cell)))
+    .filter((row) => row.some((cell) => cell.length > 0));
 }
 
-function findColumn(headers: string[], aliases: string[]) {
+function normalizeCellValue(value: unknown) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim();
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.replace(/^\uFEFF/, '').trim();
+}
+
+function findExactColumn(headers: string[], aliases: string[]) {
   return headers.findIndex((header) =>
-    aliases.some((alias) => header.includes(normalizeHeader(alias)))
+    aliases.some((alias) => header === normalizeHeader(alias))
   );
 }
 
@@ -332,7 +495,12 @@ function normalizeHeader(header: string) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+    .replace(/\s+/g, ' ')
     .trim();
+}
+
+function getCell(row: string[], index: number) {
+  return index === -1 ? '' : (row[index] ?? '').trim();
 }
 
 function parseDateCell(value: string | undefined) {
@@ -416,4 +584,11 @@ function createRawPayload(headers: string[], row: string[]) {
 
     return payload;
   }, {});
+}
+
+function isExcelFile(file: File) {
+  return (
+    file.name.toLowerCase().endsWith('.xlsx') ||
+    file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
 }

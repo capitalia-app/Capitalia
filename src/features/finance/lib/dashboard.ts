@@ -3,6 +3,10 @@ import {
   type WorkspaceSummary
 } from '@/features/finance/lib/accounts';
 import type { MovementType } from '@/features/finance/lib/import/types';
+import {
+  getLatestPatrimonialSnapshot,
+  type PatrimonialSnapshot
+} from '@/features/finance/lib/snapshots';
 import { supabase } from '@/shared/lib/supabase';
 
 export type DashboardAccount = {
@@ -38,6 +42,13 @@ export type DashboardSummary = {
   monthTransfers: number;
   monthBalance: number;
   wealthBuildRate: number | null;
+  snapshot: PatrimonialSnapshot | null;
+  initialNetWorth: number | null;
+  incomeSinceStart: number;
+  expensesSinceStart: number;
+  investedSinceStart: number;
+  transfersSinceStart: number;
+  estimatedNetWorth: number;
   accounts: DashboardAccount[];
   recentTransactions: DashboardTransaction[];
 };
@@ -107,13 +118,18 @@ export async function getDashboardSummary() {
     workspace.id,
     accounts.map((account) => account.id)
   );
+  const snapshot = await getLatestPatrimonialSnapshot(workspace.id);
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const [monthTransactions, recentTransactions, balanceTransactions] = await Promise.all([
-    getMonthlyTransactions(workspace.id, monthStart),
-    getRecentTransactions(workspace.id),
-    getBalanceTransactions(workspace.id, accounts, balances)
-  ]);
+  const [monthTransactions, startTransactions, recentTransactions, balanceTransactions] =
+    await Promise.all([
+      getTransactionsFrom(workspace.id, monthStart),
+      snapshot
+        ? getTransactionsFrom(workspace.id, snapshot.snapshotDate)
+        : Promise.resolve([]),
+      getRecentTransactions(workspace.id),
+      getBalanceTransactions(workspace.id, accounts, balances)
+    ]);
   const categoryIds = recentTransactions
     .map((transaction) => transaction.category_id)
     .filter((categoryId): categoryId is string => Boolean(categoryId));
@@ -124,6 +140,10 @@ export async function getDashboardSummary() {
   const monthInvested = sumByMovement(monthTransactions, 'investment');
   const monthTransfers = sumByMovement(monthTransactions, 'transfer');
   const monthBalance = monthIncome - monthExpenses;
+  const incomeSinceStart = sumByMovement(startTransactions, 'income');
+  const expensesSinceStart = sumByMovement(startTransactions, 'expense');
+  const investedSinceStart = sumByMovement(startTransactions, 'investment');
+  const transfersSinceStart = sumByMovement(startTransactions, 'transfer');
   const accountBalances = accounts.map((account) => {
     const balance = balances.get(account.id);
 
@@ -135,16 +155,31 @@ export async function getDashboardSummary() {
     } satisfies DashboardAccount;
   });
 
+  const accountNetWorth = accountBalances.reduce(
+    (total, account) => total + account.balance,
+    0
+  );
+  const estimatedNetWorth = snapshot
+    ? snapshot.initialNetWorth + incomeSinceStart - expensesSinceStart
+    : accountNetWorth;
+
   return {
     workspace,
     currency: workspace.baseCurrency,
-    netWorth: accountBalances.reduce((total, account) => total + account.balance, 0),
+    netWorth: estimatedNetWorth,
     monthIncome,
     monthExpenses,
     monthInvested,
     monthTransfers,
     monthBalance,
     wealthBuildRate: monthIncome > 0 ? (monthBalance / monthIncome) * 100 : null,
+    snapshot,
+    initialNetWorth: snapshot?.initialNetWorth ?? null,
+    incomeSinceStart,
+    expensesSinceStart,
+    investedSinceStart,
+    transfersSinceStart,
+    estimatedNetWorth,
     accounts: accountBalances,
     recentTransactions: recentTransactions.map((transaction) => ({
       accountId: transaction.account_id,
@@ -194,17 +229,20 @@ async function getLatestBalances(workspaceId: string, accountIds: string[]) {
   return balances;
 }
 
-async function getMonthlyTransactions(workspaceId: string, monthStart: Date) {
+async function getTransactionsFrom(workspaceId: string, fromDate: Date | string) {
   if (!supabase) {
     return [];
   }
+
+  const fromIso =
+    typeof fromDate === 'string' ? `${fromDate}T00:00:00.000Z` : fromDate.toISOString();
 
   const { data, error } = await supabase
     .from('transactions')
     .select('amount, direction, movement_type')
     .eq('workspace_id', workspaceId)
     .eq('status', 'posted')
-    .gte('occurred_at', monthStart.toISOString())
+    .gte('occurred_at', fromIso)
     .returns<MonthlyTransactionRecord[]>();
 
   if (error) {

@@ -14,6 +14,7 @@ import type {
   ImportParseResult,
   ParsedCsvTransaction
 } from '@/features/finance/lib/import/types';
+import { normalizeHeader } from '@/features/finance/lib/import/utils';
 import { supabase } from '@/shared/lib/supabase';
 
 export type { IgnoredImportRow, ImportParseResult, ParsedCsvTransaction };
@@ -27,10 +28,12 @@ export type CsvSaveResult = {
   importedCount: number;
   duplicateCount: number;
   ignoredCount: number;
+  pendingReviewCount: number;
 };
 
 type ExistingTransactionRecord = {
   fingerprint: string | null;
+  import_hash: string | null;
 };
 
 type ImportBatchRecord = {
@@ -71,41 +74,85 @@ export async function saveCsvImport(params: {
     params.workspaceId,
     params.transactions
   );
-  const fingerprints = classifiedTransactions.map(
+  const transactionsWithImportHash = await Promise.all(
+    classifiedTransactions.map(async (transaction) => ({
+      ...transaction,
+      importHash: await createImportHash({
+        accountId: params.accountId,
+        amount: transaction.amount,
+        date: transaction.date,
+        description: transaction.description,
+        workspaceId: params.workspaceId
+      })
+    }))
+  );
+  const fingerprints = transactionsWithImportHash.map(
     (transaction) => transaction.fingerprint
   );
-  const { data: existingTransactions, error: existingError } = await supabase
-    .from('transactions')
-    .select('fingerprint')
-    .eq('workspace_id', params.workspaceId)
-    .in('fingerprint', fingerprints)
-    .returns<ExistingTransactionRecord[]>();
+  const importHashes = transactionsWithImportHash.map(
+    (transaction) => transaction.importHash
+  );
+  const [existingByFingerprint, existingByImportHash] = await Promise.all([
+    supabase
+      .from('transactions')
+      .select('fingerprint, import_hash')
+      .eq('workspace_id', params.workspaceId)
+      .in('fingerprint', fingerprints)
+      .returns<ExistingTransactionRecord[]>(),
+    supabase
+      .from('transactions')
+      .select('fingerprint, import_hash')
+      .eq('workspace_id', params.workspaceId)
+      .in('import_hash', importHashes)
+      .returns<ExistingTransactionRecord[]>()
+  ]);
 
-  if (existingError) {
-    throw existingError;
+  if (existingByFingerprint.error) {
+    throw existingByFingerprint.error;
   }
+
+  if (existingByImportHash.error) {
+    throw existingByImportHash.error;
+  }
+
+  const existingTransactions = [
+    ...existingByFingerprint.data,
+    ...existingByImportHash.data
+  ];
 
   const existingFingerprints = new Set(
     existingTransactions
       .map((transaction) => transaction.fingerprint)
       .filter((fingerprint): fingerprint is string => Boolean(fingerprint))
   );
-  const newTransactions = classifiedTransactions.filter(
-    (transaction) => !existingFingerprints.has(transaction.fingerprint)
+  const existingImportHashes = new Set(
+    existingTransactions
+      .map((transaction) => transaction.import_hash)
+      .filter((importHash): importHash is string => Boolean(importHash))
   );
-  const sourceFormat = classifiedTransactions[0]?.sourceFormat ?? 'unknown';
+  const newTransactions = transactionsWithImportHash.filter(
+    (transaction) =>
+      !existingFingerprints.has(transaction.fingerprint) &&
+      !existingImportHashes.has(transaction.importHash)
+  );
+  const sourceFormat = transactionsWithImportHash[0]?.sourceFormat ?? 'unknown';
+  const duplicateCount = transactionsWithImportHash.length - newTransactions.length;
+  const pendingReviewCount = newTransactions.filter(
+    (transaction) => !transaction.isReviewed
+  ).length;
 
   const { data: batch, error: batchError } = await supabase
     .from('import_batches')
     .insert({
       completed_at: new Date().toISOString(),
       metadata: {
-        duplicate_rows: classifiedTransactions.length - newTransactions.length,
+        duplicate_rows: duplicateCount,
         file_name: params.fileName,
         ignored_rows: params.ignoredRows?.length ?? 0,
         imported_rows: newTransactions.length,
+        pending_review_rows: pendingReviewCount,
         parser: sourceFormat,
-        total_rows: classifiedTransactions.length
+        total_rows: transactionsWithImportHash.length
       },
       source_type: 'csv',
       started_at: new Date().toISOString(),
@@ -121,9 +168,10 @@ export async function saveCsvImport(params: {
 
   if (newTransactions.length === 0) {
     return {
-      duplicateCount: classifiedTransactions.length,
+      duplicateCount: transactionsWithImportHash.length,
       ignoredCount: params.ignoredRows?.length ?? 0,
-      importedCount: 0
+      importedCount: 0,
+      pendingReviewCount: 0
     } satisfies CsvSaveResult;
   }
 
@@ -138,6 +186,7 @@ export async function saveCsvImport(params: {
           date: transaction.date,
           description: transaction.description,
           direction: transaction.direction,
+          import_hash: transaction.importHash,
           is_reviewed: transaction.isReviewed,
           movement_type: transaction.movementType,
           source_format: transaction.sourceFormat,
@@ -174,6 +223,7 @@ export async function saveCsvImport(params: {
       direction: transaction.direction,
       fingerprint: transaction.fingerprint,
       import_batch_id: batch.id,
+      import_hash: transaction.importHash,
       is_reviewed: transaction.isReviewed,
       movement_type: transaction.movementType,
       occurred_at: `${transaction.date}T12:00:00.000Z`,
@@ -189,8 +239,42 @@ export async function saveCsvImport(params: {
   }
 
   return {
-    duplicateCount: classifiedTransactions.length - newTransactions.length,
+    duplicateCount,
     ignoredCount: params.ignoredRows?.length ?? 0,
-    importedCount: newTransactions.length
+    importedCount: newTransactions.length,
+    pendingReviewCount
   } satisfies CsvSaveResult;
+}
+
+async function createImportHash(input: {
+  workspaceId: string;
+  accountId: string;
+  date: string;
+  amount: number;
+  description: string;
+}) {
+  const payload = [
+    input.workspaceId,
+    input.accountId,
+    input.date,
+    input.amount.toFixed(4),
+    normalizeHeader(input.description)
+  ].join('|');
+
+  if (crypto.subtle) {
+    const bytes = new TextEncoder().encode(payload);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+
+    return hashArray.map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  let hash = 0;
+
+  for (let index = 0; index < payload.length; index += 1) {
+    hash = (hash << 5) - hash + payload.charCodeAt(index);
+    hash |= 0;
+  }
+
+  return `fallback-${Math.abs(hash).toString(16)}`;
 }

@@ -16,7 +16,7 @@ type CsvImportPanelProps = {
 
 export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
   const [context, setContext] = useState<CsvImportContext | null>(null);
-  const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [selectedContainerId, setSelectedContainerId] = useState('');
   const [selectedFileName, setSelectedFileName] = useState('');
   const [detectedFormat, setDetectedFormat] = useState('');
   const [previewRows, setPreviewRows] = useState<ParsedCsvTransaction[]>([]);
@@ -31,9 +31,11 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
     void loadContext();
   }, []);
 
-  const selectedAccount = useMemo(
-    () => context?.accounts.find((account) => account.id === selectedAccountId) ?? null,
-    [context?.accounts, selectedAccountId]
+  const selectedContainer = useMemo(
+    () =>
+      context?.containers.find((container) => container.id === selectedContainerId) ??
+      null,
+    [context?.containers, selectedContainerId]
   );
 
   async function loadContext() {
@@ -44,7 +46,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
       const nextContext = await getCsvImportContext();
 
       setContext(nextContext);
-      setSelectedAccountId(nextContext.accounts[0]?.id ?? '');
+      setSelectedContainerId(nextContext.containers[0]?.id ?? '');
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -66,8 +68,8 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
       return;
     }
 
-    if (!selectedAccount) {
-      setError('Selecciona una cuenta antes de importar.');
+    if (!selectedContainer) {
+      setError('Selecciona una cuenta o plataforma antes de importar.');
       event.target.value = '';
       return;
     }
@@ -76,7 +78,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
     setSelectedFileName(file.name);
 
     try {
-      const parsedImport = await parseImportFile(file, selectedAccount.currency);
+      const parsedImport = await parseImportFile(file, selectedContainer.currency);
 
       setDetectedFormat(parsedImport.sourceFormat);
       setPreviewRows(parsedImport.transactions);
@@ -95,8 +97,8 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
     setError(null);
     setSuccess(null);
 
-    if (!context || !selectedAccount) {
-      setError('Selecciona una cuenta financiera.');
+    if (!context || !selectedContainer) {
+      setError('Selecciona una cuenta o plataforma.');
       return;
     }
 
@@ -109,11 +111,11 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
 
     try {
       const result = await saveCsvImport({
-        workspaceId: context.workspace.id,
-        accountId: selectedAccount.id,
+        container: selectedContainer,
         fileName: selectedFileName,
         ignoredRows,
-        transactions: previewRows
+        transactions: previewRows,
+        workspaceId: context.workspace.id
       });
 
       setSuccess(
@@ -149,20 +151,23 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
 
       {isLoading ? <p className="panel-status">Preparando importacion...</p> : null}
 
-      {!isLoading && context?.accounts.length === 0 ? (
+      {!isLoading && context?.containers.length === 0 ? (
         <div className="empty-state-card">
-          <span>Primero crea una cuenta para importar movimientos.</span>
-          <p>Crea una cuenta antes de importar movimientos por CSV.</p>
+          <span>Primero define tu punto de partida o crea una cuenta/plataforma.</span>
+          <p>
+            Capitalia necesita una cuenta o plataforma real para asociar estos
+            movimientos.
+          </p>
         </div>
       ) : null}
 
-      {!isLoading && context && context.accounts.length > 0 ? (
+      {!isLoading && context && context.containers.length > 0 ? (
         <div className="csv-import-card">
           <label>
-            <span>Cuenta destino</span>
+            <span>A que cuenta/plataforma pertenece este archivo?</span>
             <select
               onChange={(event) => {
-                setSelectedAccountId(event.target.value);
+                setSelectedContainerId(event.target.value);
                 setPreviewRows([]);
                 setIgnoredRows([]);
                 setSelectedFileName('');
@@ -170,11 +175,11 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
                 setSuccess(null);
                 setError(null);
               }}
-              value={selectedAccountId}
+              value={selectedContainerId}
             >
-              {context.accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name} · {account.currency}
+              {context.containers.map((container) => (
+                <option key={container.id} value={container.id}>
+                  {container.label} - {container.currency}
                 </option>
               ))}
             </select>
@@ -204,7 +209,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
             <strong>
               {formatMoney(
                 getPreviewTotal(previewRows),
-                selectedAccount?.currency ?? 'EUR'
+                selectedContainer?.currency ?? 'EUR'
               )}
             </strong>
           </div>

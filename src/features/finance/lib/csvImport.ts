@@ -1,7 +1,6 @@
 import {
   getCurrentWorkspace,
-  listFinancialAccounts,
-  type FinancialAccount,
+  type FinancialAccountType,
   type WorkspaceSummary
 } from '@/features/finance/lib/accounts';
 import {
@@ -15,13 +14,27 @@ import type {
   ParsedCsvTransaction
 } from '@/features/finance/lib/import/types';
 import { normalizeHeader } from '@/features/finance/lib/import/utils';
+import {
+  listFinancialContainers,
+  type ContainerType,
+  type FinancialContainer
+} from '@/features/finance/lib/snapshots';
 import { supabase } from '@/shared/lib/supabase';
 
 export type { IgnoredImportRow, ImportParseResult, ParsedCsvTransaction };
 
 export type CsvImportContext = {
   workspace: WorkspaceSummary;
-  accounts: FinancialAccount[];
+  containers: ImportContainerOption[];
+};
+
+export type ImportContainerOption = {
+  id: string;
+  name: string;
+  label: string;
+  institution: string | null;
+  containerType: ContainerType;
+  currency: string;
 };
 
 export type CsvSaveResult = {
@@ -45,13 +58,20 @@ type RawImportRecord = {
   record_hash: string;
 };
 
+type FinancialAccountRecord = {
+  id: string;
+  name: string;
+};
+
 export async function getCsvImportContext() {
   const workspace = await getCurrentWorkspace();
-  const accounts = await listFinancialAccounts(workspace.id);
+  const containers = (await listFinancialContainers(workspace.id))
+    .filter((container) => container.id !== 'unassigned')
+    .map(mapContainerToImportOption);
 
   return {
-    workspace,
-    accounts
+    containers,
+    workspace
   } satisfies CsvImportContext;
 }
 
@@ -61,7 +81,7 @@ export async function parseImportFile(file: File, fallbackCurrency: string) {
 
 export async function saveCsvImport(params: {
   workspaceId: string;
-  accountId: string;
+  container: ImportContainerOption;
   fileName: string;
   transactions: ParsedCsvTransaction[];
   ignoredRows?: IgnoredImportRow[];
@@ -70,6 +90,10 @@ export async function saveCsvImport(params: {
     throw new Error('Supabase no esta configurado.');
   }
 
+  const accountId = await ensureFinancialAccountForContainer({
+    container: params.container,
+    workspaceId: params.workspaceId
+  });
   const classifiedTransactions = await classifyImportedTransactions(
     params.workspaceId,
     params.transactions
@@ -78,7 +102,7 @@ export async function saveCsvImport(params: {
     classifiedTransactions.map(async (transaction) => ({
       ...transaction,
       importHash: await createImportHash({
-        accountId: params.accountId,
+        accountId,
         amount: transaction.amount,
         date: transaction.date,
         description: transaction.description,
@@ -213,7 +237,7 @@ export async function saveCsvImport(params: {
 
   const { error: transactionsError } = await supabase.from('transactions').insert(
     newTransactions.map((transaction) => ({
-      account_id: params.accountId,
+      account_id: accountId,
       amount: Math.abs(transaction.amount),
       booked_at: `${transaction.date}T12:00:00.000Z`,
       category_id: transaction.categoryId,
@@ -244,6 +268,110 @@ export async function saveCsvImport(params: {
     importedCount: newTransactions.length,
     pendingReviewCount
   } satisfies CsvSaveResult;
+}
+
+function mapContainerToImportOption(container: FinancialContainer) {
+  return {
+    containerType: container.containerType,
+    currency: container.currency,
+    id: container.id,
+    institution: container.institution,
+    label: getContainerLabel(container),
+    name: container.name
+  } satisfies ImportContainerOption;
+}
+
+async function ensureFinancialAccountForContainer(input: {
+  workspaceId: string;
+  container: ImportContainerOption;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const candidateNames = [
+    input.container.label,
+    input.container.name,
+    input.container.institution
+  ].filter((name): name is string => Boolean(name?.trim()));
+
+  for (const candidateName of candidateNames) {
+    const { data, error } = await supabase
+      .from('financial_accounts')
+      .select('id, name')
+      .eq('workspace_id', input.workspaceId)
+      .ilike('name', candidateName)
+      .limit(1)
+      .maybeSingle<FinancialAccountRecord>();
+
+    if (error) {
+      throw error;
+    }
+
+    if (data) {
+      return data.id;
+    }
+  }
+
+  const { data: account, error: accountError } = await supabase
+    .from('financial_accounts')
+    .insert({
+      currency: input.container.currency.toUpperCase(),
+      institution_id: null,
+      name: input.container.label,
+      status: 'active',
+      type: mapContainerTypeToAccountType(input.container.containerType),
+      workspace_id: input.workspaceId
+    })
+    .select('id')
+    .single<{ id: string }>();
+
+  if (accountError) {
+    throw accountError;
+  }
+
+  const { error: balanceError } = await supabase.from('account_balances').insert({
+    account_id: account.id,
+    available_balance: 0,
+    balance: 0,
+    captured_at: new Date().toISOString(),
+    currency: input.container.currency.toUpperCase(),
+    source: 'system',
+    workspace_id: input.workspaceId
+  });
+
+  if (balanceError) {
+    throw balanceError;
+  }
+
+  return account.id;
+}
+
+function mapContainerTypeToAccountType(type: ContainerType): FinancialAccountType {
+  if (type === 'broker') {
+    return 'brokerage';
+  }
+
+  if (type === 'wallet' || type === 'exchange') {
+    return 'crypto_wallet';
+  }
+
+  if (type === 'cash') {
+    return 'cash';
+  }
+
+  return type === 'bank' ? 'checking' : 'other';
+}
+
+function getContainerLabel(container: FinancialContainer) {
+  if (
+    container.institution &&
+    container.institution.trim().toLowerCase() !== container.name.trim().toLowerCase()
+  ) {
+    return `${container.institution} / ${container.name}`;
+  }
+
+  return container.name;
 }
 
 async function createImportHash(input: {

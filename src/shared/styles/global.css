@@ -431,6 +431,19 @@ h1 {
   padding-top: 14px;
 }
 
+.app-toast {
+  margin: 0;
+  border: 1px solid rgba(95, 120, 111, 0.42);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #eaf4ea;
+  background: rgba(95, 120, 111, 0.2);
+  font-size: 0.9rem;
+  font-weight: 760;
+  box-shadow: var(--shadow);
+  animation: card-in 420ms ease both;
+}
+
 .dashboard-hero {
   display: grid;
   gap: 10px;
@@ -745,6 +758,46 @@ h1 {
   gap: 10px;
 }
 
+.wizard-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.wizard-step {
+  min-height: 38px;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  padding: 7px;
+  color: rgba(244, 239, 228, 0.58);
+  background: rgba(244, 239, 228, 0.05);
+  font-size: 0.72rem;
+  font-weight: 780;
+}
+
+.wizard-step--active {
+  border-color: rgba(196, 161, 90, 0.42);
+  color: var(--paper);
+  background: rgba(196, 161, 90, 0.16);
+}
+
+.snapshot-step {
+  display: grid;
+  gap: 14px;
+}
+
+.snapshot-step strong {
+  color: var(--paper);
+  font-size: 1.06rem;
+}
+
+.snapshot-step p {
+  margin: 6px 0 0;
+  color: rgba(244, 239, 228, 0.58);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .snapshot-mode {
   min-height: 54px;
   border: 1px solid rgba(244, 239, 228, 0.12);
@@ -769,6 +822,49 @@ h1 {
   border-radius: 8px;
   padding: 14px;
   background: rgba(7, 12, 16, 0.24);
+}
+
+.snapshot-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.snapshot-group-block {
+  display: grid;
+  gap: 10px;
+}
+
+.snapshot-group-block h3 {
+  margin: 0;
+  color: var(--gold-soft);
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(244, 239, 228, 0.12);
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(244, 239, 228, 0.08);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.settings-card span {
+  color: var(--paper);
+  font-size: 1.05rem;
+  font-weight: 840;
+}
+
+.settings-card p {
+  margin: 8px 0 0;
+  color: rgba(244, 239, 228, 0.62);
+  font-size: 0.92rem;
+  line-height: 1.55;
 }
 
 .danger-zone {

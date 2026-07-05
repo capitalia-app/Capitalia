@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { ActionButton } from '@/features/onboarding/components/ActionButton';
 import {
   getCsvImportContext,
-  parseBbvaCsvFile,
+  parseImportFile,
   saveCsvImport,
   type CsvImportContext,
   type ParsedCsvTransaction
@@ -17,6 +17,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
   const [context, setContext] = useState<CsvImportContext | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [selectedFileName, setSelectedFileName] = useState('');
+  const [detectedFormat, setDetectedFormat] = useState('');
   const [previewRows, setPreviewRows] = useState<ParsedCsvTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isParsing, setIsParsing] = useState(false);
@@ -54,6 +55,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
 
     setError(null);
     setSuccess(null);
+    setDetectedFormat('');
     setPreviewRows([]);
 
     if (!file) {
@@ -71,11 +73,13 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
     setSelectedFileName(file.name);
 
     try {
-      const rows = await parseBbvaCsvFile(file, selectedAccount.currency);
+      const parsedImport = await parseImportFile(file, selectedAccount.currency);
 
-      setPreviewRows(rows);
+      setDetectedFormat(parsedImport.sourceFormat);
+      setPreviewRows(parsedImport.transactions);
     } catch (parseError) {
       setSelectedFileName('');
+      setDetectedFormat('');
       setError(getErrorMessage(parseError));
     } finally {
       setIsParsing(false);
@@ -111,6 +115,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
       );
       setPreviewRows([]);
       setSelectedFileName('');
+      setDetectedFormat('');
     } catch (saveError) {
       setError(getErrorMessage(saveError));
     } finally {
@@ -126,8 +131,12 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
 
       <div className="section-heading">
         <p className="eyebrow">Importar</p>
-        <h2>CSV bancario</h2>
-        <span>Formato oficial BBVA</span>
+        <h2>Excel o CSV bancario</h2>
+        <span>
+          {detectedFormat
+            ? `Formato detectado: ${detectedFormat}`
+            : 'Deteccion automatica'}
+        </span>
       </div>
 
       {error ? <p className="auth-message auth-message--error">{error}</p> : null}
@@ -151,6 +160,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
                 setSelectedAccountId(event.target.value);
                 setPreviewRows([]);
                 setSelectedFileName('');
+                setDetectedFormat('');
                 setSuccess(null);
                 setError(null);
               }}
@@ -165,9 +175,9 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
           </label>
 
           <label className="file-drop">
-            <span>{selectedFileName || 'Seleccionar CSV'}</span>
+            <span>{selectedFileName || 'Seleccionar Excel o CSV'}</span>
             <small>
-              BBVA CSV o Excel: Valor, Fecha, Concepto, Movimiento, Importe y Divisa
+              BBVA, MyInvestor o CSV generico con fecha, descripcion e importe
             </small>
             <input
               accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -181,7 +191,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
         </div>
       ) : null}
 
-      {isParsing ? <p className="panel-status">Leyendo CSV...</p> : null}
+      {isParsing ? <p className="panel-status">Detectando formato...</p> : null}
 
       {previewRows.length > 0 ? (
         <>

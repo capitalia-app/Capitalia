@@ -649,6 +649,20 @@ h1 {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.transaction-row-button {
+  width: 100%;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.transaction-row-button:hover,
+.transaction-row-button:focus-visible {
+  border-color: rgba(196, 161, 90, 0.42);
+  background: rgba(196, 161, 90, 0.12);
+}
+
 .transaction-row__main,
 .transaction-row__amount,
 .transaction-row__editor {
@@ -749,6 +763,27 @@ h1 {
 .category-card small {
   color: var(--gold-soft);
   line-height: 1.45;
+}
+
+.movement-filters {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(244, 239, 228, 0.06);
+}
+
+.movement-filters label {
+  display: grid;
+  gap: 7px;
+}
+
+.movement-filters label > span {
+  color: rgba(244, 239, 228, 0.56);
+  font-size: 0.72rem;
+  font-weight: 820;
+  text-transform: uppercase;
 }
 
 .snapshot-mode-grid {
@@ -1130,7 +1165,10 @@ h1 {
 }
 
 .account-form input,
-.account-form select {
+.account-form select,
+.account-form textarea,
+.movement-filters input,
+.movement-filters select {
   width: 100%;
   min-height: 44px;
   border: 1px solid rgba(244, 239, 228, 0.16);
@@ -1142,12 +1180,23 @@ h1 {
   outline: none;
 }
 
-.account-form select option {
+.account-form textarea {
+  min-height: 96px;
+  resize: vertical;
+  padding: 12px;
+  line-height: 1.45;
+}
+
+.account-form select option,
+.movement-filters select option {
   color: var(--ink);
 }
 
 .account-form input:focus,
-.account-form select:focus {
+.account-form select:focus,
+.account-form textarea:focus,
+.movement-filters input:focus,
+.movement-filters select:focus {
   border-color: rgba(196, 161, 90, 0.62);
   box-shadow: 0 0 0 3px rgba(196, 161, 90, 0.14);
 }

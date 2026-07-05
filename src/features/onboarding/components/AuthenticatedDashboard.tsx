@@ -3,9 +3,19 @@ import { useEffect, useState } from 'react';
 import { CsvImportPanel } from '@/features/finance/components/CsvImportPanel';
 import { FinancialAccountsPanel } from '@/features/finance/components/FinancialAccountsPanel';
 import {
+  getMovementTypeLabel,
+  listCategoryRules,
+  listTransactionCategories,
+  updateTransactionCategory,
+  type CategoryRule,
+  type TransactionCategory
+} from '@/features/finance/lib/categories';
+import {
   getDashboardSummary,
+  type DashboardTransaction,
   type DashboardSummary
 } from '@/features/finance/lib/dashboard';
+import type { MovementType } from '@/features/finance/lib/import/types';
 import { BrandMark } from '@/features/onboarding/components/BrandMark';
 import { ExperienceFrame } from '@/features/onboarding/components/ExperienceFrame';
 
@@ -33,8 +43,8 @@ type NavigationItem = {
 const navigationItems = [
   {
     section: 'dashboard',
-    label: 'Dashboard',
-    detail: 'Resumen real'
+    label: 'Mi Patrimonio',
+    detail: 'Dashboard real'
   },
   {
     section: 'accounts',
@@ -48,13 +58,13 @@ const navigationItems = [
   },
   {
     section: 'movements',
-    label: 'Movimientos',
-    detail: 'Actividad real'
+    label: 'Flujo de dinero',
+    detail: 'Movimientos reales'
   },
   {
     section: 'categories',
     label: 'Categorias',
-    detail: 'Reglas proximamente'
+    detail: 'Reglas automaticas'
   },
   {
     section: 'assets',
@@ -123,18 +133,13 @@ export function AuthenticatedDashboard({
         summary={summary}
         onImportMovements={() => handleSelectSection('import')}
         onRetry={() => void loadDashboard()}
+        onUpdated={() => void loadDashboard()}
       />
     );
   }
 
   if (activeSection === 'categories') {
-    sectionContent = (
-      <EmptySection
-        eyebrow="Categorias"
-        title="Sin categorias configuradas"
-        copy="Las categorias se activaran cuando conectemos reglas reales sobre tus movimientos."
-      />
-    );
+    sectionContent = <CategoriesPanel summary={summary} />;
   }
 
   if (activeSection === 'assets') {
@@ -335,7 +340,7 @@ function HomePanel({
           <span>Patrimonio real</span>
           <strong>{formatMoney(summary.netWorth, summary.currency)}</strong>
         </div>
-        <p>Datos calculados desde tus cuentas y movimientos</p>
+        <p>Construyes patrimonio, no controlas gastos.</p>
         <small>
           {hasTransactions
             ? `Balance mensual: ${formatMoney(summary.monthBalance, summary.currency)}`
@@ -355,12 +360,31 @@ function HomePanel({
         <MetricCard
           label="Gastos"
           value={formatMoney(summary.monthExpenses, summary.currency)}
+          hint="Gastos reales"
+        />
+        <MetricCard
+          label="Invertido"
+          value={formatMoney(summary.monthInvested, summary.currency)}
+          hint="Construccion patrimonial"
+        />
+        <MetricCard
+          label="Transferencias"
+          value={formatMoney(summary.monthTransfers, summary.currency)}
+          hint="Sin impacto en balance"
         />
         <MetricCard
           label="Balance"
           value={formatMoney(summary.monthBalance, summary.currency)}
+          hint="Ingresos - gastos reales"
         />
       </section>
+
+      {hasTransactions ? (
+        <section className="empty-state-card">
+          <span>Tasa de construccion patrimonial</span>
+          <p>{getWealthBuildCopy(summary.wealthBuildRate)}</p>
+        </section>
+      ) : null}
 
       {!hasAccounts ? (
         <section className="empty-state-card">
@@ -422,7 +446,8 @@ function HomePanel({
                     {transaction.direction === 'inflow' ? '+' : '-'}
                     {formatMoney(transaction.amount, transaction.currency)}
                   </strong>
-                  <small>{getTransactionLabel(transaction.transactionType)}</small>
+                  <small>{getMovementTypeLabel(transaction.movementType)}</small>
+                  <small>{transaction.categoryName ?? transaction.accountName}</small>
                 </div>
               </article>
             ))}
@@ -444,6 +469,7 @@ type MovementsPanelProps = {
   summary: DashboardSummary | null;
   onImportMovements: () => void;
   onRetry: () => void;
+  onUpdated: () => void;
 };
 
 function MovementsPanel({
@@ -451,8 +477,58 @@ function MovementsPanel({
   isLoading,
   onImportMovements,
   onRetry,
+  onUpdated,
   summary
 }: MovementsPanelProps) {
+  const [categories, setCategories] = useState<TransactionCategory[]>([]);
+  const [rememberRuleById, setRememberRuleById] = useState<Record<string, boolean>>({});
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!summary?.workspace.id) {
+      setCategories([]);
+      return;
+    }
+
+    void loadCategories(summary.workspace.id);
+  }, [summary?.workspace.id]);
+
+  async function loadCategories(workspaceId: string) {
+    try {
+      setCategories(await listTransactionCategories(workspaceId));
+    } catch (categoryError) {
+      setLocalError(getErrorMessage(categoryError));
+    }
+  }
+
+  async function handleCategoryChange(
+    transaction: DashboardTransaction,
+    categoryId: string
+  ) {
+    if (!summary || !categoryId) {
+      return;
+    }
+
+    setUpdatingId(transaction.id);
+    setLocalError(null);
+
+    try {
+      await updateTransactionCategory({
+        categoryId,
+        description: transaction.description,
+        rememberRule: rememberRuleById[transaction.id] ?? false,
+        transactionId: transaction.id,
+        workspaceId: summary.workspace.id
+      });
+      onUpdated();
+    } catch (updateError) {
+      setLocalError(getErrorMessage(updateError));
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   if (isLoading) {
     return <p className="panel-status">Cargando movimientos...</p>;
   }
@@ -474,25 +550,67 @@ function MovementsPanel({
   return (
     <section className="assets-panel" aria-label="Movimientos">
       <div className="section-heading">
-        <p className="eyebrow">Movimientos</p>
-        <h2>Actividad real</h2>
+        <p className="eyebrow">Flujo de dinero</p>
+        <h2>Movimientos reales</h2>
         <span>{transactions.length > 0 ? 'Ultimos 10' : 'Sin movimientos'}</span>
       </div>
+
+      {localError ? (
+        <p className="auth-message auth-message--error">{localError}</p>
+      ) : null}
 
       {transactions.length > 0 ? (
         <div className="asset-list">
           {transactions.map((transaction) => (
-            <article className="asset-row" key={transaction.id}>
-              <div>
+            <article className="asset-row transaction-row" key={transaction.id}>
+              <div className="transaction-row__main">
                 <strong>{transaction.description}</strong>
-                <span>{formatDate(transaction.occurredAt)}</span>
+                <span>
+                  {formatDate(transaction.occurredAt)} · {transaction.accountName}
+                </span>
+                <small>
+                  {getMovementTypeLabel(transaction.movementType)} ·{' '}
+                  {transaction.categoryName ?? 'Sin categoria'}
+                </small>
               </div>
-              <div>
+              <div className="transaction-row__amount">
                 <strong>
                   {transaction.direction === 'inflow' ? '+' : '-'}
                   {formatMoney(transaction.amount, transaction.currency)}
                 </strong>
-                <small>{getTransactionLabel(transaction.transactionType)}</small>
+                <small>{transaction.isReviewed ? 'Revisado' : 'Pendiente'}</small>
+              </div>
+              <div className="transaction-row__editor">
+                <label>
+                  <span>Categoria</span>
+                  <select
+                    disabled={updatingId === transaction.id}
+                    onChange={(event) => {
+                      void handleCategoryChange(transaction, event.target.value);
+                    }}
+                    value={transaction.categoryId ?? ''}
+                  >
+                    <option value="">Sin categoria</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name} · {getMovementTypeLabel(category.movementType)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="remember-rule">
+                  <input
+                    checked={rememberRuleById[transaction.id] ?? false}
+                    onChange={(event) =>
+                      setRememberRuleById((current) => ({
+                        ...current,
+                        [transaction.id]: event.target.checked
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>Recordar esta clasificacion para el futuro</span>
+                </label>
               </div>
             </article>
           ))}
@@ -509,6 +627,118 @@ function MovementsPanel({
     </section>
   );
 }
+
+type CategoriesPanelProps = {
+  summary: DashboardSummary | null;
+};
+
+function CategoriesPanel({ summary }: CategoriesPanelProps) {
+  const [categories, setCategories] = useState<TransactionCategory[]>([]);
+  const [rules, setRules] = useState<CategoryRule[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!summary?.workspace.id) {
+      setIsLoading(false);
+      return;
+    }
+
+    void loadCategoryData(summary.workspace.id);
+  }, [summary?.workspace.id]);
+
+  async function loadCategoryData(workspaceId: string) {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const [nextCategories, nextRules] = await Promise.all([
+        listTransactionCategories(workspaceId),
+        listCategoryRules(workspaceId)
+      ]);
+
+      setCategories(nextCategories);
+      setRules(nextRules);
+    } catch (loadError) {
+      setError(getErrorMessage(loadError));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  if (isLoading) {
+    return <p className="panel-status">Cargando categorias...</p>;
+  }
+
+  if (error) {
+    return (
+      <section className="empty-state-card">
+        <span>No se pudieron cargar las categorias.</span>
+        <p>{error}</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="empty-section" aria-label="Categorias">
+      <div className="section-heading">
+        <p className="eyebrow">Categorias</p>
+        <h2>Motor financiero</h2>
+        <span>Reglas reales de clasificacion</span>
+      </div>
+
+      <div className="category-groups">
+        {movementGroups.map((group) => {
+          const groupCategories = categories.filter(
+            (category) => category.movementType === group.type
+          );
+
+          return (
+            <section className="category-group" key={group.type}>
+              <h3>{group.label}</h3>
+              {groupCategories.length > 0 ? (
+                groupCategories.map((category) => {
+                  const categoryRules = rules.filter(
+                    (rule) => rule.categoryId === category.id
+                  );
+
+                  return (
+                    <article className="category-card" key={category.id}>
+                      <div>
+                        <strong>{category.name}</strong>
+                        <span>
+                          {category.system ? 'Sistema' : 'Personal'} ·{' '}
+                          {getMovementTypeLabel(category.movementType)}
+                        </span>
+                      </div>
+                      <small>
+                        {categoryRules.length > 0
+                          ? categoryRules.map((rule) => rule.keyword).join(', ')
+                          : 'Sin reglas asociadas'}
+                      </small>
+                    </article>
+                  );
+                })
+              ) : (
+                <div className="empty-state-card">
+                  <span>Sin categorias</span>
+                  <p>No hay categorias reales para este bloque.</p>
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+const movementGroups = [
+  { label: 'Ingresos', type: 'income' },
+  { label: 'Gastos reales', type: 'expense' },
+  { label: 'Inversiones', type: 'investment' },
+  { label: 'Transferencias', type: 'transfer' }
+] satisfies { label: string; type: MovementType }[];
 
 type EmptySectionProps = {
   eyebrow: string;
@@ -535,13 +765,15 @@ function EmptySection({ copy, eyebrow, title }: EmptySectionProps) {
 type MetricCardProps = {
   label: string;
   value: string;
+  hint?: string;
 };
 
-function MetricCard({ label, value }: MetricCardProps) {
+function MetricCard({ hint, label, value }: MetricCardProps) {
   return (
     <article className="metric-card">
       <span>{label}</span>
       <strong>{value}</strong>
+      {hint ? <small>{hint}</small> : null}
     </article>
   );
 }
@@ -562,16 +794,16 @@ function formatDate(date: string) {
   }).format(new Date(date));
 }
 
-function getTransactionLabel(type: string) {
-  if (type === 'income') {
-    return 'Ingreso';
+function getWealthBuildCopy(rate: number | null) {
+  if (rate === null) {
+    return 'Importa movimientos de ingresos y gastos reales para calcularla.';
   }
 
-  if (type === 'transfer') {
-    return 'Transferencia';
+  if (rate < 0) {
+    return 'Este mes tu flujo patrimonial ha sido negativo.';
   }
 
-  return 'Movimiento';
+  return `Este mes has destinado ${rate.toFixed(0)}% de tus ingresos a construir patrimonio.`;
 }
 
 function getErrorMessage(error: unknown) {

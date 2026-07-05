@@ -1,4 +1,6 @@
-export type ImportTransactionType = 'income' | 'expense' | 'transfer';
+export type MovementType = 'income' | 'expense' | 'investment' | 'transfer';
+
+export type ImportTransactionType = MovementType;
 
 export type NormalizedImportTransaction = {
   id: string;
@@ -9,6 +11,10 @@ export type NormalizedImportTransaction = {
   type: ImportTransactionType;
   sourceFormat: string;
   rawRow: Record<string, string>;
+  movementType?: MovementType;
+  categoryId?: string | null;
+  categoryName?: string | null;
+  isReviewed?: boolean;
 };
 
 export type ParsedCsvTransaction = NormalizedImportTransaction & {

@@ -184,10 +184,6 @@ export function AuthenticatedDashboard({
   return (
     <ExperienceFrame className="dashboard-screen">
       <header className="app-header">
-        <BrandMark />
-        <div className="dashboard-session">
-          {userEmail ? <span>Sesion activa: {userEmail}</span> : null}
-        </div>
         <button
           aria-expanded={isMenuOpen}
           aria-label="Abrir menu"
@@ -199,6 +195,10 @@ export function AuthenticatedDashboard({
           <span />
           <span />
         </button>
+        <BrandMark />
+        <div className="dashboard-session">
+          {userEmail ? <span>Sesion activa: {userEmail}</span> : null}
+        </div>
       </header>
 
       <NavigationDrawer

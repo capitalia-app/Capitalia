@@ -15,6 +15,7 @@ export type SnapshotItemType =
 
 export type PatrimonialSnapshotItem = {
   id: string;
+  platform: string | null;
   name: string;
   type: SnapshotItemType;
   value: number;
@@ -34,9 +35,19 @@ export type PatrimonialSnapshot = {
   initialNetWorth: number;
   initialGrossWorth: number;
   initialDebt: number;
+  groupedByType: SnapshotGroup[];
+  groupedByPlatform: SnapshotGroup[];
+};
+
+export type SnapshotGroup = {
+  key: string;
+  label: string;
+  total: number;
+  itemCount: number;
 };
 
 export type CreateSnapshotItemInput = {
+  platform?: string | null;
   name: string;
   type: SnapshotItemType;
   value: number;
@@ -54,6 +65,7 @@ type SnapshotRecord = {
 
 type SnapshotItemRecord = {
   id: string;
+  platform: string | null;
   name: string;
   type: SnapshotItemType;
   value: number | string;
@@ -91,7 +103,9 @@ export async function getLatestPatrimonialSnapshot(workspaceId: string) {
 
   const { data: items, error: itemsError } = await supabase
     .from('patrimonial_snapshot_items')
-    .select('id, name, type, value, currency, linked_account_id, linked_asset_id, notes')
+    .select(
+      'id, platform, name, type, value, currency, linked_account_id, linked_asset_id, notes'
+    )
     .eq('snapshot_id', snapshot.id)
     .order('created_at', { ascending: true })
     .returns<SnapshotItemRecord[]>();
@@ -140,6 +154,7 @@ export async function createPatrimonialSnapshot(input: {
       currency: item.currency.toUpperCase(),
       name: item.name,
       notes: item.notes ?? null,
+      platform: normalizeOptionalText(item.platform),
       linked_account_id: item.linkedAccountId,
       linked_asset_id: item.linkedAssetId,
       snapshot_id: snapshot.id,
@@ -190,6 +205,7 @@ function mapSnapshot(snapshot: SnapshotRecord, itemRecords: SnapshotItemRecord[]
     linkedAssetId: item.linked_asset_id,
     name: item.name,
     notes: item.notes,
+    platform: item.platform,
     type: item.type,
     value: Number(item.value)
   }));
@@ -202,6 +218,8 @@ function mapSnapshot(snapshot: SnapshotRecord, itemRecords: SnapshotItemRecord[]
 
   return {
     id: snapshot.id,
+    groupedByPlatform: groupSnapshotItems(items, (item) => item.platform ?? 'Manual'),
+    groupedByType: groupSnapshotItems(items, (item) => item.type),
     initialDebt,
     initialGrossWorth,
     initialNetWorth: initialGrossWorth - initialDebt,
@@ -224,6 +242,7 @@ async function prepareSnapshotItems(input: {
         ? await ensureFinancialAccount({
             currency: item.currency,
             name: item.name,
+            platform: item.platform,
             snapshotDate: input.snapshotDate,
             type: mapSnapshotItemToAccountType(item.type),
             value: item.value,
@@ -234,6 +253,7 @@ async function prepareSnapshotItems(input: {
         ? await ensureAsset({
             currency: item.currency,
             name: item.name,
+            platform: item.platform,
             type: mapSnapshotItemToAssetType(item.type),
             value: item.value,
             workspaceId: input.workspaceId
@@ -252,6 +272,7 @@ async function prepareSnapshotItems(input: {
 
 async function ensureFinancialAccount(input: {
   workspaceId: string;
+  platform?: string | null;
   name: string;
   type: 'checking' | 'brokerage' | 'cash';
   currency: string;
@@ -263,7 +284,7 @@ async function ensureFinancialAccount(input: {
   }
 
   const existing = await findExistingNamedRecord('financial_accounts', {
-    name: input.name,
+    name: getEntityName(input.platform, input.name),
     workspaceId: input.workspaceId
   });
 
@@ -276,7 +297,7 @@ async function ensureFinancialAccount(input: {
     .from('financial_accounts')
     .insert({
       currency,
-      name: input.name,
+      name: getEntityName(input.platform, input.name),
       status: 'active',
       type: input.type,
       workspace_id: input.workspaceId
@@ -307,6 +328,7 @@ async function ensureFinancialAccount(input: {
 
 async function ensureAsset(input: {
   workspaceId: string;
+  platform?: string | null;
   name: string;
   type: 'security' | 'crypto' | 'real_estate' | 'vehicle' | 'other';
   currency: string;
@@ -317,7 +339,7 @@ async function ensureAsset(input: {
   }
 
   const existing = await findExistingNamedRecord('assets', {
-    name: input.name,
+    name: getEntityName(input.platform, input.name),
     workspaceId: input.workspaceId
   });
 
@@ -330,7 +352,11 @@ async function ensureAsset(input: {
     .insert({
       currency: input.currency.toUpperCase(),
       manual_value: Math.abs(input.value),
-      name: input.name,
+      metadata: {
+        platform: normalizeOptionalText(input.platform)
+      },
+      name: getEntityName(input.platform, input.name),
+      provider: normalizeOptionalText(input.platform),
       status: 'active',
       type: input.type,
       workspace_id: input.workspaceId
@@ -343,6 +369,52 @@ async function ensureAsset(input: {
   }
 
   return data.id;
+}
+
+function groupSnapshotItems(
+  items: PatrimonialSnapshotItem[],
+  getKey: (item: PatrimonialSnapshotItem) => string
+) {
+  const groups = new Map<string, SnapshotGroup>();
+
+  items.forEach((item) => {
+    const key = getKey(item) || 'Manual';
+    const current = groups.get(key) ?? {
+      itemCount: 0,
+      key,
+      label: key,
+      total: 0
+    };
+
+    groups.set(key, {
+      ...current,
+      itemCount: current.itemCount + 1,
+      total: current.total + item.value
+    });
+  });
+
+  return [...groups.values()].sort(
+    (left, right) => Math.abs(right.total) - Math.abs(left.total)
+  );
+}
+
+function getEntityName(platform: string | null | undefined, name: string) {
+  const normalizedPlatform = normalizeOptionalText(platform);
+
+  if (
+    !normalizedPlatform ||
+    normalizedPlatform.toLowerCase() === name.trim().toLowerCase()
+  ) {
+    return name.trim();
+  }
+
+  return `${normalizedPlatform} - ${name.trim()}`;
+}
+
+function normalizeOptionalText(value: string | null | undefined) {
+  const normalized = value?.trim();
+
+  return normalized ? normalized : null;
 }
 
 async function findExistingNamedRecord(

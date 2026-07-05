@@ -830,6 +830,19 @@ h1 {
   gap: 10px;
 }
 
+.snapshot-group-block {
+  display: grid;
+  gap: 10px;
+}
+
+.snapshot-group-block h3 {
+  margin: 0;
+  color: var(--gold-soft);
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .settings-card {
   display: grid;
   gap: 14px;

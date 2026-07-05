@@ -177,13 +177,7 @@ export function AuthenticatedDashboard({
   }
 
   if (activeSection === 'assets') {
-    sectionContent = (
-      <EmptySection
-        eyebrow="Activos"
-        title="Sin activos avanzados"
-        copy="Las posiciones, inmuebles y otros activos llegaran en una fase posterior con datos reales."
-      />
-    );
+    sectionContent = <AssetsPanel summary={summary} />;
   }
 
   if (activeSection === 'goals') {
@@ -465,6 +459,14 @@ function HomePanel({
           />
         </section>
       )}
+
+      {summary.snapshot ? (
+        <SnapshotGroups
+          currency={summary.currency}
+          groups={summary.snapshot.groupedByPlatform}
+          title="Patrimonio por entidad"
+        />
+      ) : null}
 
       <section className="metric-grid" aria-label="Resumen mensual real">
         <MetricCard
@@ -851,6 +853,44 @@ function CategoriesPanel({ summary }: CategoriesPanelProps) {
   );
 }
 
+type AssetsPanelProps = {
+  summary: DashboardSummary | null;
+};
+
+function AssetsPanel({ summary }: AssetsPanelProps) {
+  if (!summary?.snapshot) {
+    return (
+      <EmptySection
+        eyebrow="Activos"
+        title="Sin punto de partida"
+        copy="Configura tus cuentas, inversiones, activos y deudas para ver tu patrimonio agrupado."
+      />
+    );
+  }
+
+  return (
+    <section className="empty-section" aria-label="Activos">
+      <div className="section-heading">
+        <p className="eyebrow">Activos</p>
+        <h2>Mapa patrimonial</h2>
+        <span>Desde tu punto de partida</span>
+      </div>
+
+      <SnapshotGroups
+        currency={summary.currency}
+        groups={summary.snapshot.groupedByType}
+        title="Por tipo de activo"
+      />
+
+      <SnapshotGroups
+        currency={summary.currency}
+        groups={summary.snapshot.groupedByPlatform}
+        title="Por entidad o plataforma"
+      />
+    </section>
+  );
+}
+
 type SnapshotPanelProps = {
   summary: DashboardSummary | null;
   onBack: () => void;
@@ -943,12 +983,26 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
           />
         </section>
 
+        <SnapshotGroups
+          currency={summary.currency}
+          groups={summary.snapshot.groupedByType}
+          title="Agrupado por tipo de activo"
+        />
+
+        <SnapshotGroups
+          currency={summary.currency}
+          groups={summary.snapshot.groupedByPlatform}
+          title="Agrupado por entidad o plataforma"
+        />
+
         <div className="asset-list">
           {summary.snapshot.items.map((item) => (
             <article className="asset-row" key={item.id}>
               <div>
                 <strong>{item.name}</strong>
-                <span>{getSnapshotTypeLabel(item.type)}</span>
+                <span>
+                  {item.platform ?? 'Manual'} · {getSnapshotTypeLabel(item.type)}
+                </span>
               </div>
               <div>
                 <strong>{formatMoney(item.value, item.currency)}</strong>
@@ -974,6 +1028,7 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
         currency: item.currency.trim().toUpperCase(),
         name: item.name.trim(),
         notes: item.notes?.trim() || null,
+        platform: item.platform?.trim() || null,
         type: item.type,
         value:
           item.group === 'debts'
@@ -1219,6 +1274,41 @@ type SnapshotItemStepProps = {
   typeOptions: Array<{ value: SnapshotItemType; label: string }>;
 };
 
+function SnapshotGroups({
+  currency,
+  groups,
+  title
+}: {
+  currency: string;
+  groups: Array<{ key: string; label: string; total: number; itemCount: number }>;
+  title: string;
+}) {
+  if (groups.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="snapshot-group-block">
+      <h3>{title}</h3>
+      <div className="asset-list">
+        {groups.map((group) => (
+          <article className="account-row" key={group.key}>
+            <div>
+              <strong>{getSnapshotGroupLabel(group.label)}</strong>
+              <span>
+                {group.itemCount} {group.itemCount === 1 ? 'elemento' : 'elementos'}
+              </span>
+            </div>
+            <div>
+              <strong>{formatMoney(group.total, currency)}</strong>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function SnapshotItemStep({
   addLabel,
   currency,
@@ -1239,6 +1329,19 @@ function SnapshotItemStep({
 
       {items.map((item, index) => (
         <div className="snapshot-item-row" key={item.localId}>
+          <label>
+            <span>Entidad / plataforma</span>
+            <input
+              onChange={(event) =>
+                updateDraftItem(setFormState, item.localId, {
+                  platform: event.target.value
+                })
+              }
+              placeholder="MyInvestor"
+              type="text"
+              value={item.platform ?? ''}
+            />
+          </label>
           <label>
             <span>Nombre</span>
             <input
@@ -1592,6 +1695,7 @@ function createDraftSnapshotItem(currency: string, group: SnapshotDraftItem['gro
     localId: crypto.randomUUID(),
     name: '',
     notes: '',
+    platform: group === 'debts' ? 'Manual' : '',
     type: getDefaultSnapshotType(group),
     value: 0,
     valueInput: ''
@@ -1713,6 +1817,10 @@ function getWealthBuildCopy(rate: number | null) {
 }
 
 function getSnapshotTypeLabel(type: SnapshotItemType) {
+  if (type === 'liability') {
+    return 'Deuda';
+  }
+
   const allOptions = [
     ...accountSnapshotItemTypes,
     ...assetSnapshotItemTypes,
@@ -1720,6 +1828,25 @@ function getSnapshotTypeLabel(type: SnapshotItemType) {
   ];
 
   return allOptions.find((option) => option.value === type)?.label ?? 'Elemento';
+}
+
+function getSnapshotGroupLabel(label: string) {
+  const snapshotType = label as SnapshotItemType;
+  const knownTypes: SnapshotItemType[] = [
+    'bank_account',
+    'broker',
+    'cash',
+    'fund',
+    'etf',
+    'stock',
+    'crypto',
+    'real_estate',
+    'vehicle',
+    'other_asset',
+    'liability'
+  ];
+
+  return knownTypes.includes(snapshotType) ? getSnapshotTypeLabel(snapshotType) : label;
 }
 
 function getErrorMessage(error: unknown) {

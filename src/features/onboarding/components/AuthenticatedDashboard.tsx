@@ -22,6 +22,7 @@ import {
 import type { MovementType } from '@/features/finance/lib/import/types';
 import {
   createPatrimonialSnapshot,
+  resetPatrimonialStartingPoint,
   resetWorkspaceFinancialData,
   type CreateSnapshotItemInput,
   type SnapshotItemType
@@ -199,6 +200,21 @@ export function AuthenticatedDashboard({
     sectionContent = (
       <SettingsPanel
         summary={summary}
+        onOpenSnapshot={() => setActiveSection('snapshot')}
+        onRedoStartingPoint={() => {
+          setSummary((current) =>
+            current
+              ? {
+                  ...current,
+                  initialDebt: null,
+                  initialGrossWorth: null,
+                  initialNetWorth: null,
+                  snapshot: null
+                }
+              : current
+          );
+          setActiveSection('snapshot');
+        }}
         onReset={(message) => {
           setToastMessage(message);
           setActiveSection('dashboard');
@@ -396,11 +412,11 @@ function HomePanel({
         <section className="empty-state-card">
           <span>Define tu punto de partida</span>
           <p>
-            Define tu punto de partida para que Capitalia pueda calcular tu patrimonio
-            correctamente.
+            Anade tus cuentas, inversiones, activos y deudas para que Capitalia pueda
+            calcular tu patrimonio correctamente.
           </p>
           <button className="text-link" onClick={onCreateSnapshot} type="button">
-            Crear snapshot inicial
+            Configurar patrimonio inicial
           </button>
         </section>
       ) : (
@@ -408,7 +424,23 @@ function HomePanel({
           <MetricCard
             label="Patrimonio inicial"
             value={formatMoney(summary.initialNetWorth ?? 0, summary.currency)}
-            hint={formatDate(summary.snapshot.snapshotDate)}
+            hint="Punto de partida"
+          />
+          <MetricCard
+            label="Patrimonio bruto inicial"
+            value={formatMoney(summary.initialGrossWorth ?? 0, summary.currency)}
+          />
+          <MetricCard
+            label="Deudas iniciales"
+            value={formatMoney(summary.initialDebt ?? 0, summary.currency)}
+          />
+          <MetricCard
+            label="Patrimonio neto inicial"
+            value={formatMoney(summary.initialNetWorth ?? 0, summary.currency)}
+          />
+          <MetricCard
+            label="Fecha de inicio"
+            value={formatDate(summary.snapshot.snapshotDate)}
           />
           <MetricCard
             label="Ingresos desde inicio"
@@ -833,34 +865,101 @@ type SnapshotFormState = {
 };
 
 type SnapshotDraftItem = CreateSnapshotItemInput & {
+  group: 'accounts' | 'assets' | 'debts';
   localId: string;
   valueInput: string;
 };
 
-const snapshotItemTypes = [
+const accountSnapshotItemTypes = [
   { value: 'bank_account', label: 'Cuenta bancaria' },
   { value: 'broker', label: 'Broker' },
-  { value: 'cash', label: 'Cash' },
+  { value: 'cash', label: 'Efectivo' }
+] satisfies Array<{ value: SnapshotItemType; label: string }>;
+
+const assetSnapshotItemTypes = [
   { value: 'fund', label: 'Fondo' },
   { value: 'etf', label: 'ETF' },
   { value: 'stock', label: 'Accion' },
   { value: 'crypto', label: 'Cripto' },
   { value: 'real_estate', label: 'Inmueble' },
   { value: 'vehicle', label: 'Vehiculo' },
-  { value: 'other_asset', label: 'Otro activo' },
-  { value: 'liability', label: 'Pasivo' }
+  { value: 'other_asset', label: 'Otro activo' }
+] satisfies Array<{ value: SnapshotItemType; label: string }>;
+
+const debtSnapshotItemTypes = [
+  { value: 'liability', label: 'Hipoteca' },
+  { value: 'liability', label: 'Prestamo' },
+  { value: 'liability', label: 'Tarjeta financiada' },
+  { value: 'liability', label: 'Otra deuda' }
 ] satisfies Array<{ value: SnapshotItemType; label: string }>;
 
 function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
   const today = new Date().toISOString().slice(0, 10);
+  const [stepIndex, setStepIndex] = useState(0);
   const [formState, setFormState] = useState<SnapshotFormState>({
-    items: [createDraftSnapshotItem(summary?.currency ?? 'EUR')],
+    items: [createDraftSnapshotItem(summary?.currency ?? 'EUR', 'accounts')],
     mode: 'today',
     notes: '',
     snapshotDate: today
   });
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const currency = summary?.currency ?? 'EUR';
+  const accounts = formState.items.filter((item) => item.group === 'accounts');
+  const assets = formState.items.filter((item) => item.group === 'assets');
+  const debts = formState.items.filter((item) => item.group === 'debts');
+  const totals = getSnapshotDraftTotals(formState.items);
+
+  if (summary?.snapshot) {
+    return (
+      <section className="accounts-panel" aria-label="Punto de partida patrimonial">
+        <button className="text-link csv-import-back" onClick={onBack} type="button">
+          Volver al dashboard
+        </button>
+
+        <div className="section-heading">
+          <p className="eyebrow">Punto de partida</p>
+          <h2>Fotografia inicial</h2>
+          <span>{formatDate(summary.snapshot.snapshotDate)}</span>
+        </div>
+
+        <section className="snapshot-summary-grid">
+          <MetricCard
+            label="Patrimonio bruto inicial"
+            value={formatMoney(summary.snapshot.initialGrossWorth, summary.currency)}
+          />
+          <MetricCard
+            label="Deudas iniciales"
+            value={formatMoney(summary.snapshot.initialDebt, summary.currency)}
+          />
+          <MetricCard
+            label="Patrimonio neto inicial"
+            value={formatMoney(summary.snapshot.initialNetWorth, summary.currency)}
+          />
+          <MetricCard
+            label="Elementos"
+            value={String(summary.snapshot.items.length)}
+            hint="Cuentas, activos y deudas"
+          />
+        </section>
+
+        <div className="asset-list">
+          {summary.snapshot.items.map((item) => (
+            <article className="asset-row" key={item.id}>
+              <div>
+                <strong>{item.name}</strong>
+                <span>{getSnapshotTypeLabel(item.type)}</span>
+              </div>
+              <div>
+                <strong>{formatMoney(item.value, item.currency)}</strong>
+                <small>{item.currency}</small>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   async function handleSave() {
     setError(null);
@@ -876,7 +975,10 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
         name: item.name.trim(),
         notes: item.notes?.trim() || null,
         type: item.type,
-        value: Number(item.valueInput)
+        value:
+          item.group === 'debts'
+            ? -Math.abs(Number(item.valueInput))
+            : Math.abs(Number(item.valueInput))
       }))
       .filter((item) => item.name && Number.isFinite(item.value));
 
@@ -890,7 +992,7 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
     try {
       await createPatrimonialSnapshot({
         items,
-        name: 'Snapshot inicial',
+        name: 'Punto de partida',
         notes: formState.notes.trim() || null,
         snapshotDate: formState.snapshotDate,
         workspaceId: summary.workspace.id
@@ -912,188 +1014,345 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
       <div className="section-heading">
         <p className="eyebrow">Punto de partida</p>
         <h2>Define tu punto de partida</h2>
-        <span>Capitalia necesita saber desde que fecha empiezas.</span>
+        <span>
+          Para que Capitalia calcule bien tu patrimonio, necesitamos una fotografia
+          inicial de tus cuentas, inversiones, activos y deudas.
+        </span>
       </div>
 
       <div className="empty-state-card">
-        <span>Para que tu patrimonio cuadre</span>
-        <p>
-          Capitalia necesita saber desde que fecha empiezas y cuanto tenias en cada cuenta
-          o activo.
-        </p>
+        <span>No pongas una sola cantidad.</span>
+        <p>Anade cada cuenta o activo por separado.</p>
       </div>
 
       {error ? <p className="auth-message auth-message--error">{error}</p> : null}
 
       <form className="account-form">
-        <div className="snapshot-mode-grid">
-          <button
-            className={
-              formState.mode === 'today'
-                ? 'snapshot-mode snapshot-mode--active'
-                : 'snapshot-mode'
-            }
-            onClick={() =>
-              setFormState((current) => ({
-                ...current,
-                mode: 'today',
-                snapshotDate: today
-              }))
-            }
-            type="button"
-          >
-            Empezar desde hoy
-          </button>
-          <button
-            className={
-              formState.mode === 'historical'
-                ? 'snapshot-mode snapshot-mode--active'
-                : 'snapshot-mode'
-            }
-            onClick={() =>
-              setFormState((current) => ({
-                ...current,
-                mode: 'historical'
-              }))
-            }
-            type="button"
-          >
-            Reconstruir desde otra fecha
-          </button>
+        <div className="wizard-steps" aria-label="Pasos del punto de partida">
+          {wizardSteps.map((step, index) => (
+            <button
+              className={
+                stepIndex === index ? 'wizard-step wizard-step--active' : 'wizard-step'
+              }
+              key={step}
+              onClick={() => setStepIndex(index)}
+              type="button"
+            >
+              {index + 1}. {step}
+            </button>
+          ))}
         </div>
 
-        <label>
-          <span>Fecha de inicio</span>
-          <input
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                snapshotDate: event.target.value
-              }))
-            }
-            type="date"
-            value={formState.snapshotDate}
-          />
-        </label>
-
-        {formState.items.map((item) => (
-          <div className="snapshot-item-row" key={item.localId}>
-            <label>
-              <span>Nombre</span>
-              <input
-                onChange={(event) =>
-                  updateDraftItem(setFormState, item.localId, {
-                    name: event.target.value
-                  })
+        {stepIndex === 0 ? (
+          <div className="snapshot-step">
+            <div>
+              <strong>Desde cuando quieres empezar?</strong>
+              <p>
+                Si eliges una fecha pasada, importa despues movimientos desde esa fecha
+                para que todo cuadre.
+              </p>
+            </div>
+            <div className="snapshot-mode-grid">
+              <button
+                className={
+                  formState.mode === 'today'
+                    ? 'snapshot-mode snapshot-mode--active'
+                    : 'snapshot-mode'
                 }
-                placeholder="BBVA, MyInvestor, BTC..."
-                type="text"
-                value={item.name}
-              />
-            </label>
-            <label>
-              <span>Tipo</span>
-              <select
-                onChange={(event) =>
-                  updateDraftItem(setFormState, item.localId, {
-                    type: event.target.value as SnapshotItemType
-                  })
+                onClick={() =>
+                  setFormState((current) => ({
+                    ...current,
+                    mode: 'today',
+                    snapshotDate: today
+                  }))
                 }
-                value={item.type}
+                type="button"
               >
-                {snapshotItemTypes.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="account-form__grid">
-              <label>
-                <span>Valor inicial</span>
-                <input
-                  inputMode="decimal"
-                  onChange={(event) =>
-                    updateDraftItem(setFormState, item.localId, {
-                      valueInput: event.target.value
-                    })
-                  }
-                  placeholder="0"
-                  step="0.01"
-                  type="number"
-                  value={item.valueInput}
-                />
-              </label>
-              <label>
-                <span>Moneda</span>
-                <input
-                  maxLength={3}
-                  onChange={(event) =>
-                    updateDraftItem(setFormState, item.localId, {
-                      currency: event.target.value.toUpperCase()
-                    })
-                  }
-                  type="text"
-                  value={item.currency}
-                />
-              </label>
+                Empezar desde hoy
+              </button>
+              <button
+                className={
+                  formState.mode === 'historical'
+                    ? 'snapshot-mode snapshot-mode--active'
+                    : 'snapshot-mode'
+                }
+                onClick={() =>
+                  setFormState((current) => ({
+                    ...current,
+                    mode: 'historical'
+                  }))
+                }
+                type="button"
+              >
+                Reconstruir desde otra fecha
+              </button>
             </div>
             <label>
-              <span>Notas opcionales</span>
+              <span>Fecha de inicio</span>
               <input
                 onChange={(event) =>
-                  updateDraftItem(setFormState, item.localId, {
-                    notes: event.target.value
-                  })
+                  setFormState((current) => ({
+                    ...current,
+                    snapshotDate: event.target.value
+                  }))
                 }
-                type="text"
-                value={item.notes ?? ''}
+                type="date"
+                value={formState.snapshotDate}
               />
             </label>
           </div>
-        ))}
+        ) : null}
+
+        {stepIndex === 1 ? (
+          <SnapshotItemStep
+            addLabel="Anadir cuenta"
+            currency={currency}
+            items={accounts}
+            placeholders={['BBVA', 'Revolut', 'MyInvestor', 'Efectivo casa']}
+            setFormState={setFormState}
+            title="Anade tus cuentas"
+            typeOptions={accountSnapshotItemTypes}
+            group="accounts"
+          />
+        ) : null}
+
+        {stepIndex === 2 ? (
+          <SnapshotItemStep
+            addLabel="Anadir activo"
+            currency={currency}
+            items={assets}
+            placeholders={[
+              'Fidelity MSCI World',
+              'Bitcoin',
+              'Apartamento Fuengirola',
+              'Renault Megane'
+            ]}
+            setFormState={setFormState}
+            title="Anade tus inversiones y activos"
+            typeOptions={assetSnapshotItemTypes}
+            group="assets"
+          />
+        ) : null}
+
+        {stepIndex === 3 ? (
+          <SnapshotItemStep
+            addLabel="Anadir deuda"
+            currency={currency}
+            emptyCopy="Puedes saltarte este paso si no tienes deudas."
+            items={debts}
+            placeholders={['Hipoteca', 'Prestamo coche', 'Tarjeta financiada']}
+            setFormState={setFormState}
+            title="Anade tus deudas"
+            typeOptions={debtSnapshotItemTypes}
+            group="debts"
+          />
+        ) : null}
+
+        {stepIndex === 4 ? (
+          <div className="snapshot-step">
+            <div>
+              <strong>Resumen</strong>
+              <p>Revisa tu fotografia inicial antes de guardarla.</p>
+            </div>
+            <div className="snapshot-summary-grid">
+              <MetricCard
+                label="Activos liquidos"
+                value={formatMoney(totals.liquidAssets, currency)}
+              />
+              <MetricCard
+                label="Inversiones y activos"
+                value={formatMoney(totals.investmentAssets, currency)}
+              />
+              <MetricCard
+                label="Deudas"
+                value={`-${formatMoney(totals.debt, currency)}`}
+              />
+              <MetricCard
+                label="Patrimonio neto inicial"
+                value={formatMoney(totals.netWorth, currency)}
+              />
+            </div>
+            <ActionButton
+              disabled={isSaving}
+              onClick={() => void handleSave()}
+              type="button"
+            >
+              {isSaving ? 'Guardando...' : 'Guardar punto de partida'}
+            </ActionButton>
+          </div>
+        ) : null}
 
         <div className="account-form__actions">
           <button
             className="text-link"
-            onClick={() =>
-              setFormState((current) => ({
-                ...current,
-                items: [
-                  ...current.items,
-                  createDraftSnapshotItem(summary?.currency ?? 'EUR')
-                ]
-              }))
-            }
+            disabled={stepIndex === 0}
+            onClick={() => setStepIndex((current) => Math.max(current - 1, 0))}
             type="button"
           >
-            Anadir linea
+            Anterior
           </button>
-          <ActionButton
-            disabled={isSaving}
-            onClick={() => void handleSave()}
-            type="button"
-          >
-            {isSaving ? 'Guardando...' : 'Guardar snapshot'}
-          </ActionButton>
+          {stepIndex < wizardSteps.length - 1 ? (
+            <ActionButton
+              onClick={() =>
+                setStepIndex((current) => Math.min(current + 1, wizardSteps.length - 1))
+              }
+              type="button"
+            >
+              Continuar
+            </ActionButton>
+          ) : null}
         </div>
       </form>
     </section>
   );
 }
 
+type SnapshotItemStepProps = {
+  addLabel: string;
+  currency: string;
+  emptyCopy?: string;
+  group: SnapshotDraftItem['group'];
+  items: SnapshotDraftItem[];
+  placeholders: string[];
+  setFormState: Dispatch<SetStateAction<SnapshotFormState>>;
+  title: string;
+  typeOptions: Array<{ value: SnapshotItemType; label: string }>;
+};
+
+function SnapshotItemStep({
+  addLabel,
+  currency,
+  emptyCopy,
+  group,
+  items,
+  placeholders,
+  setFormState,
+  title,
+  typeOptions
+}: SnapshotItemStepProps) {
+  return (
+    <div className="snapshot-step">
+      <div>
+        <strong>{title}</strong>
+        {emptyCopy ? <p>{emptyCopy}</p> : null}
+      </div>
+
+      {items.map((item, index) => (
+        <div className="snapshot-item-row" key={item.localId}>
+          <label>
+            <span>Nombre</span>
+            <input
+              onChange={(event) =>
+                updateDraftItem(setFormState, item.localId, {
+                  name: event.target.value
+                })
+              }
+              placeholder={placeholders[index % placeholders.length]}
+              type="text"
+              value={item.name}
+            />
+          </label>
+          <label>
+            <span>Tipo</span>
+            <select
+              onChange={(event) =>
+                updateDraftItem(setFormState, item.localId, {
+                  type: event.target.value as SnapshotItemType
+                })
+              }
+              value={item.type}
+            >
+              {typeOptions.map((type) => (
+                <option key={`${type.value}-${type.label}`} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="account-form__grid">
+            <label>
+              <span>{group === 'debts' ? 'Importe pendiente' : 'Valor inicial'}</span>
+              <input
+                inputMode="decimal"
+                onChange={(event) =>
+                  updateDraftItem(setFormState, item.localId, {
+                    valueInput: event.target.value
+                  })
+                }
+                placeholder="0"
+                min="0"
+                step="0.01"
+                type="number"
+                value={item.valueInput}
+              />
+            </label>
+            <label>
+              <span>Moneda</span>
+              <input
+                maxLength={3}
+                onChange={(event) =>
+                  updateDraftItem(setFormState, item.localId, {
+                    currency: event.target.value.toUpperCase()
+                  })
+                }
+                type="text"
+                value={item.currency}
+              />
+            </label>
+          </div>
+          <label>
+            <span>Notas opcionales</span>
+            <input
+              onChange={(event) =>
+                updateDraftItem(setFormState, item.localId, {
+                  notes: event.target.value
+                })
+              }
+              type="text"
+              value={item.notes ?? ''}
+            />
+          </label>
+        </div>
+      ))}
+
+      <button
+        className="text-link"
+        onClick={() =>
+          setFormState((current) => ({
+            ...current,
+            items: [...current.items, createDraftSnapshotItem(currency, group)]
+          }))
+        }
+        type="button"
+      >
+        {addLabel}
+      </button>
+    </div>
+  );
+}
+
 type SettingsPanelProps = {
   summary: DashboardSummary | null;
+  onOpenSnapshot: () => void;
+  onRedoStartingPoint: () => void;
   onReset: (message: string) => void;
 };
 
-function SettingsPanel({ onReset, summary }: SettingsPanelProps) {
+function SettingsPanel({
+  onOpenSnapshot,
+  onRedoStartingPoint,
+  onReset,
+  summary
+}: SettingsPanelProps) {
   const [workspace, setWorkspace] = useState<WorkspaceSummary | null>(
     summary?.workspace ?? null
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isRedoModalOpen, setIsRedoModalOpen] = useState(false);
   const [confirmation, setConfirmation] = useState('');
+  const [redoConfirmation, setRedoConfirmation] = useState('');
   const [isResetting, setIsResetting] = useState(false);
+  const [isRedoingSnapshot, setIsRedoingSnapshot] = useState(false);
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(!summary?.workspace);
   const [error, setError] = useState<string | null>(null);
 
@@ -1147,6 +1406,33 @@ function SettingsPanel({ onReset, summary }: SettingsPanelProps) {
     }
   }
 
+  async function handleRedoStartingPoint() {
+    setError(null);
+
+    if (!workspace) {
+      setError('No se encontro un workspace activo.');
+      return;
+    }
+
+    if (redoConfirmation !== 'REHACER PUNTO') {
+      setError('Escribe REHACER PUNTO para confirmar.');
+      return;
+    }
+
+    setIsRedoingSnapshot(true);
+
+    try {
+      await resetPatrimonialStartingPoint(workspace.id);
+      setRedoConfirmation('');
+      setIsRedoModalOpen(false);
+      onRedoStartingPoint();
+    } catch (redoError) {
+      setError(getErrorMessage(redoError));
+    } finally {
+      setIsRedoingSnapshot(false);
+    }
+  }
+
   return (
     <section className="empty-section" aria-label="Ajustes">
       <div className="section-heading">
@@ -1159,6 +1445,34 @@ function SettingsPanel({ onReset, summary }: SettingsPanelProps) {
         <p className="panel-status">Preparando ajustes del workspace...</p>
       ) : null}
       {error ? <p className="auth-message auth-message--error">{error}</p> : null}
+
+      <section className="settings-card">
+        <div>
+          <span>Punto de partida patrimonial</span>
+          {summary?.snapshot ? (
+            <p>
+              Fecha de inicio: {formatDate(summary.snapshot.snapshotDate)}. Elementos:{' '}
+              {summary.snapshot.items.length}. Patrimonio neto inicial:{' '}
+              {formatMoney(summary.snapshot.initialNetWorth, summary.currency)}.
+            </p>
+          ) : (
+            <p>No tienes punto de partida patrimonial configurado.</p>
+          )}
+        </div>
+        <div className="empty-state-actions">
+          <button className="text-link" onClick={onOpenSnapshot} type="button">
+            Ver punto de partida
+          </button>
+          <button
+            className="text-link"
+            disabled={!summary?.snapshot}
+            onClick={() => setIsRedoModalOpen(true)}
+            type="button"
+          >
+            Rehacer punto de partida
+          </button>
+        </div>
+      </section>
 
       <section className="danger-zone">
         <div>
@@ -1218,6 +1532,46 @@ function SettingsPanel({ onReset, summary }: SettingsPanelProps) {
           </section>
         </div>
       ) : null}
+
+      {isRedoModalOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="danger-modal" role="dialog" aria-modal="true">
+            <div className="section-heading">
+              <p className="eyebrow">Punto de partida</p>
+              <h2>Rehacer configuracion</h2>
+              <span>No borra movimientos, cuentas ni categorias.</span>
+            </div>
+            <p>
+              Se borraran solo los elementos del punto de partida patrimonial. Para
+              confirmar, escribe exactamente REHACER PUNTO.
+            </p>
+            <input
+              onChange={(event) => setRedoConfirmation(event.target.value)}
+              placeholder="REHACER PUNTO"
+              type="text"
+              value={redoConfirmation}
+            />
+            <div className="account-form__actions">
+              <button
+                className="text-link"
+                disabled={isRedoingSnapshot}
+                onClick={() => setIsRedoModalOpen(false)}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                className="danger-button"
+                disabled={isRedoingSnapshot || redoConfirmation !== 'REHACER PUNTO'}
+                onClick={() => void handleRedoStartingPoint()}
+                type="button"
+              >
+                {isRedoingSnapshot ? 'Preparando...' : 'Rehacer punto'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1229,13 +1583,16 @@ const movementGroups = [
   { label: 'Transferencias', type: 'transfer' }
 ] satisfies { label: string; type: MovementType }[];
 
-function createDraftSnapshotItem(currency: string) {
+const wizardSteps = ['Fecha', 'Cuentas', 'Activos', 'Deudas', 'Resumen'] as const;
+
+function createDraftSnapshotItem(currency: string, group: SnapshotDraftItem['group']) {
   return {
     currency,
+    group,
     localId: crypto.randomUUID(),
     name: '',
     notes: '',
-    type: 'bank_account',
+    type: getDefaultSnapshotType(group),
     value: 0,
     valueInput: ''
   } satisfies SnapshotDraftItem;
@@ -1252,6 +1609,41 @@ function updateDraftItem(
       item.localId === localId ? { ...item, ...patch } : item
     )
   }));
+}
+
+function getDefaultSnapshotType(group: SnapshotDraftItem['group']) {
+  if (group === 'assets') {
+    return 'fund';
+  }
+
+  if (group === 'debts') {
+    return 'liability';
+  }
+
+  return 'bank_account';
+}
+
+function getSnapshotDraftTotals(items: SnapshotDraftItem[]) {
+  const liquidAssets = sumDraftItems(items, 'accounts');
+  const investmentAssets = sumDraftItems(items, 'assets');
+  const debt = sumDraftItems(items, 'debts');
+
+  return {
+    debt,
+    investmentAssets,
+    liquidAssets,
+    netWorth: liquidAssets + investmentAssets - debt
+  };
+}
+
+function sumDraftItems(items: SnapshotDraftItem[], group: SnapshotDraftItem['group']) {
+  return items
+    .filter((item) => item.group === group)
+    .reduce((total, item) => {
+      const value = Number(item.valueInput);
+
+      return Number.isFinite(value) ? total + Math.abs(value) : total;
+    }, 0);
 }
 
 type EmptySectionProps = {
@@ -1318,6 +1710,16 @@ function getWealthBuildCopy(rate: number | null) {
   }
 
   return `Este mes has destinado ${rate.toFixed(0)}% de tus ingresos a construir patrimonio.`;
+}
+
+function getSnapshotTypeLabel(type: SnapshotItemType) {
+  const allOptions = [
+    ...accountSnapshotItemTypes,
+    ...assetSnapshotItemTypes,
+    ...debtSnapshotItemTypes
+  ];
+
+  return allOptions.find((option) => option.value === type)?.label ?? 'Elemento';
 }
 
 function getErrorMessage(error: unknown) {

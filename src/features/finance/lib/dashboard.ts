@@ -44,6 +44,8 @@ export type DashboardSummary = {
   wealthBuildRate: number | null;
   snapshot: PatrimonialSnapshot | null;
   initialNetWorth: number | null;
+  initialGrossWorth: number | null;
+  initialDebt: number | null;
   incomeSinceStart: number;
   expensesSinceStart: number;
   investedSinceStart: number;
@@ -175,6 +177,8 @@ export async function getDashboardSummary() {
     wealthBuildRate: monthIncome > 0 ? (monthBalance / monthIncome) * 100 : null,
     snapshot,
     initialNetWorth: snapshot?.initialNetWorth ?? null,
+    initialGrossWorth: snapshot?.initialGrossWorth ?? null,
+    initialDebt: snapshot?.initialDebt ?? null,
     incomeSinceStart,
     expensesSinceStart,
     investedSinceStart,

@@ -431,6 +431,19 @@ h1 {
   padding-top: 14px;
 }
 
+.app-toast {
+  margin: 0;
+  border: 1px solid rgba(95, 120, 111, 0.42);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #eaf4ea;
+  background: rgba(95, 120, 111, 0.2);
+  font-size: 0.9rem;
+  font-weight: 760;
+  box-shadow: var(--shadow);
+  animation: card-in 420ms ease both;
+}
+
 .dashboard-hero {
   display: grid;
   gap: 10px;

@@ -3,6 +3,10 @@ import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { CsvImportPanel } from '@/features/finance/components/CsvImportPanel';
 import { FinancialAccountsPanel } from '@/features/finance/components/FinancialAccountsPanel';
 import {
+  getCurrentWorkspace,
+  type WorkspaceSummary
+} from '@/features/finance/lib/accounts';
+import {
   getMovementTypeLabel,
   listCategoryRules,
   listTransactionCategories,
@@ -100,6 +104,7 @@ export function AuthenticatedDashboard({
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
     void loadDashboard();
@@ -108,8 +113,14 @@ export function AuthenticatedDashboard({
   function handleSelectSection(section: AppSection) {
     setActiveSection(section);
     setIsMenuOpen(false);
+    setToastMessage(null);
 
-    if (section === 'dashboard' || section === 'movements') {
+    if (
+      section === 'dashboard' ||
+      section === 'movements' ||
+      section === 'categories' ||
+      section === 'settings'
+    ) {
       void loadDashboard();
     }
   }
@@ -188,7 +199,8 @@ export function AuthenticatedDashboard({
     sectionContent = (
       <SettingsPanel
         summary={summary}
-        onReset={() => {
+        onReset={(message) => {
+          setToastMessage(message);
           setActiveSection('dashboard');
           void loadDashboard();
         }}
@@ -238,6 +250,12 @@ export function AuthenticatedDashboard({
         onSignOut={onSignOut}
         userEmail={userEmail}
       />
+
+      {toastMessage ? (
+        <p className="app-toast" role="status">
+          {toastMessage}
+        </p>
+      ) : null}
 
       {sectionContent}
     </ExperienceFrame>
@@ -1066,21 +1084,46 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
 
 type SettingsPanelProps = {
   summary: DashboardSummary | null;
-  onReset: () => void;
+  onReset: (message: string) => void;
 };
 
 function SettingsPanel({ onReset, summary }: SettingsPanelProps) {
+  const [workspace, setWorkspace] = useState<WorkspaceSummary | null>(
+    summary?.workspace ?? null
+  );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [confirmation, setConfirmation] = useState('');
   const [isResetting, setIsResetting] = useState(false);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(!summary?.workspace);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (summary?.workspace) {
+      setWorkspace(summary.workspace);
+      setIsLoadingWorkspace(false);
+      return;
+    }
+
+    void loadWorkspaceForSettings();
+  }, [summary?.workspace]);
+
+  async function loadWorkspaceForSettings() {
+    setIsLoadingWorkspace(true);
+    setError(null);
+
+    try {
+      setWorkspace(await getCurrentWorkspace());
+    } catch (workspaceError) {
+      setError(getErrorMessage(workspaceError));
+    } finally {
+      setIsLoadingWorkspace(false);
+    }
+  }
 
   async function handleReset() {
     setError(null);
-    setSuccess(null);
 
-    if (!summary) {
+    if (!workspace) {
       setError('No se encontro un workspace activo.');
       return;
     }
@@ -1093,11 +1136,10 @@ function SettingsPanel({ onReset, summary }: SettingsPanelProps) {
     setIsResetting(true);
 
     try {
-      await resetWorkspaceFinancialData(summary.workspace.id);
-      setSuccess('Datos financieros reseteados. Tu usuario y workspace siguen intactos.');
+      await resetWorkspaceFinancialData(workspace.id);
       setConfirmation('');
       setIsModalOpen(false);
-      onReset();
+      onReset('Datos financieros reseteados. Tu usuario y workspace siguen intactos.');
     } catch (resetError) {
       setError(getErrorMessage(resetError));
     } finally {
@@ -1110,23 +1152,25 @@ function SettingsPanel({ onReset, summary }: SettingsPanelProps) {
       <div className="section-heading">
         <p className="eyebrow">Ajustes</p>
         <h2>Cuenta y seguridad</h2>
-        <span>{summary?.workspace.name ?? 'Workspace personal'}</span>
+        <span>{workspace?.name ?? 'Workspace personal'}</span>
       </div>
 
+      {isLoadingWorkspace ? (
+        <p className="panel-status">Preparando ajustes del workspace...</p>
+      ) : null}
       {error ? <p className="auth-message auth-message--error">{error}</p> : null}
-      {success ? <p className="auth-message auth-message--success">{success}</p> : null}
 
       <section className="danger-zone">
         <div>
           <span>Zona peligrosa</span>
           <p>
-            Esto borrara movimientos, balances, cuentas financieras, reglas
-            personalizadas, activos, precios y snapshots de este workspace. No borrara tu
-            usuario ni el workspace.
+            Borra todos los datos financieros de este workspace para empezar de cero. No
+            borra tu usuario ni tu workspace.
           </p>
         </div>
         <button
           className="danger-button"
+          disabled={!workspace || isLoadingWorkspace}
           onClick={() => setIsModalOpen(true)}
           type="button"
         >

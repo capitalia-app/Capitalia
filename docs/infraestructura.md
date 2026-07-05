@@ -20,11 +20,15 @@ Level Security correctamente configurado. No debe confundirse con la clave
 
 ## Flujo GitHub -> Vercel
 
+`main` es la unica rama de integracion de Capitalia. Cualquier rama historica como
+`chore/project-foundation` no debe usarse como base de trabajo ni como destino de pull
+requests.
+
 El flujo esperado es:
 
 1. Crear una rama por tarea desde `main`.
 2. Hacer commits pequenos y claros.
-3. Abrir pull request en GitHub.
+3. Abrir pull request en GitHub con base `main`.
 4. Ejecutar CI: formato, lint, typecheck y build.
 5. Vercel genera preview deployment para la rama.
 6. Revisar visualmente el preview.
@@ -32,6 +36,21 @@ El flujo esperado es:
 8. Vercel despliega produccion desde `main`.
 
 La rama `main` debe representar siempre una version desplegable.
+
+Flujo resumido:
+
+```text
+Codex -> rama feature/fix desde main -> PR contra main -> checks -> merge a main -> Vercel Production -> Supabase Actions
+```
+
+Reglas de ramas:
+
+- `feat/*` -> PR contra `main`.
+- `fix/*` -> PR contra `main`.
+- `docs/*` -> PR contra `main`.
+- `refactor/*` -> PR contra `main`.
+- No trabajar directamente en `main`.
+- No abrir nuevas PR contra `chore/project-foundation`.
 
 ## Variables de Entorno en Vercel
 

@@ -130,6 +130,21 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
     }
   }
 
+  function markAsInternalTransfer(transactionId: string) {
+    setPreviewRows((currentRows) =>
+      currentRows.map((row) =>
+        row.id === transactionId
+          ? {
+              ...row,
+              movementType: 'transfer',
+              transactionType: 'transfer',
+              type: 'transfer'
+            }
+          : row
+      )
+    );
+  }
+
   return (
     <section className="csv-import-panel" aria-label="Importar CSV">
       <button className="text-link csv-import-back" onClick={onBack} type="button">
@@ -222,6 +237,17 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
                   <span>
                     {formatDate(row.date)} · {getTypeLabel(row.transactionType)}
                   </span>
+                  {row.transactionType === 'transfer' ? (
+                    <small>Transferencia interna</small>
+                  ) : (
+                    <button
+                      className="text-link csv-preview-action"
+                      onClick={() => markAsInternalTransfer(row.id)}
+                      type="button"
+                    >
+                      Transferencia interna
+                    </button>
+                  )}
                 </div>
                 <strong className={row.direction === 'inflow' ? 'is-positive' : ''}>
                   {formatMoney(row.amount, row.currency)}

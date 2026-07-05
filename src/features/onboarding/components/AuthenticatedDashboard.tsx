@@ -503,8 +503,8 @@ function HomePanel({
             {summary.recentTransactions.map((transaction) => (
               <article className="asset-row" key={transaction.id}>
                 <div>
-                  <strong>{transaction.description}</strong>
-                  <span>{formatDate(transaction.occurredAt)}</span>
+                  <strong>{getTransactionTitle(transaction)}</strong>
+                  <span>{getTransactionSubtitle(transaction)}</span>
                 </div>
                 <div>
                   <strong>
@@ -629,10 +629,8 @@ function MovementsPanel({
           {transactions.map((transaction) => (
             <article className="asset-row transaction-row" key={transaction.id}>
               <div className="transaction-row__main">
-                <strong>{transaction.description}</strong>
-                <span>
-                  {formatDate(transaction.occurredAt)} · {transaction.accountName}
-                </span>
+                <strong>{getTransactionTitle(transaction)}</strong>
+                <span>{getTransactionSubtitle(transaction)}</span>
                 <small>
                   {getMovementTypeLabel(transaction.movementType)} ·{' '}
                   {transaction.categoryName ?? 'Sin categoria'}
@@ -2115,6 +2113,41 @@ function formatDate(date: string) {
     month: 'short',
     year: 'numeric'
   }).format(new Date(date));
+}
+
+function getTransactionTitle(transaction: DashboardTransaction) {
+  if (transaction.movementType !== 'transfer') {
+    return transaction.description;
+  }
+
+  if (!transaction.linkedTransactionId || !transaction.linkedAccountName) {
+    return 'Transferencia interna pendiente de emparejar';
+  }
+
+  return 'Transferencia interna';
+}
+
+function getTransactionSubtitle(transaction: DashboardTransaction) {
+  const date = formatDate(transaction.occurredAt);
+
+  if (transaction.movementType !== 'transfer') {
+    return date;
+  }
+
+  if (!transaction.linkedTransactionId || !transaction.linkedAccountName) {
+    return `${date} · ${transaction.accountName}`;
+  }
+
+  const origin =
+    transaction.direction === 'outflow'
+      ? transaction.accountName
+      : transaction.linkedAccountName;
+  const destination =
+    transaction.direction === 'outflow'
+      ? transaction.linkedAccountName
+      : transaction.accountName;
+
+  return `${origin} -> ${destination}`;
 }
 
 function getSnapshotTypeLabel(type: SnapshotItemType) {

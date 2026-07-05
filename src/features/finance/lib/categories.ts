@@ -98,6 +98,12 @@ export async function classifyImportedTransactions(
     listCategoryRules(workspaceId)
   ]);
   const categoriesById = new Map(categories.map((category) => [category.id, category]));
+  const categoriesByName = new Map(
+    categories.map((category) => [
+      `${normalizeForMatch(category.name)}|${category.movementType}`,
+      category
+    ])
+  );
 
   return transactions.map((transaction) => {
     const normalizedDescription = normalizeForMatch(
@@ -106,10 +112,15 @@ export async function classifyImportedTransactions(
         ...Object.values(transaction.rawRow).filter(Boolean)
       ].join(' ')
     );
-    const matchedRule = rules.find((rule) =>
-      normalizedDescription.includes(normalizeForMatch(rule.keyword))
-    );
-    const category = matchedRule ? categoriesById.get(matchedRule.categoryId) : null;
+    const priorityCategory = getPriorityCategory(normalizedDescription, categoriesByName);
+    const matchedRule = priorityCategory
+      ? null
+      : rules.find((rule) =>
+          normalizedDescription.includes(normalizeForMatch(rule.keyword))
+        );
+    const category =
+      priorityCategory ??
+      (matchedRule ? categoriesById.get(matchedRule.categoryId) : null);
     const movementType = category?.movementType ?? transaction.type;
 
     return {
@@ -122,6 +133,33 @@ export async function classifyImportedTransactions(
       type: movementType
     } satisfies ClassifiedImportTransaction;
   });
+}
+
+function getPriorityCategory(
+  normalizedDescription: string,
+  categoriesByName: Map<string, TransactionCategory>
+) {
+  if (matchesAny(normalizedDescription, transferKeywords)) {
+    if (normalizedDescription.includes('revolut')) {
+      return getCategoryByName(categoriesByName, 'Revolut', 'transfer');
+    }
+
+    if (normalizedDescription.includes('myinvestor')) {
+      return getCategoryByName(categoriesByName, 'Banco a broker', 'transfer');
+    }
+
+    return getCategoryByName(categoriesByName, 'Entre cuentas', 'transfer');
+  }
+
+  if (matchesAny(normalizedDescription, fundPriorityKeywords)) {
+    return getCategoryByName(categoriesByName, 'Fondos', 'investment');
+  }
+
+  if (matchesAny(normalizedDescription, etfPriorityKeywords)) {
+    return getCategoryByName(categoriesByName, 'ETF', 'investment');
+  }
+
+  return null;
 }
 
 export async function updateTransactionCategory(params: {
@@ -217,6 +255,51 @@ function normalizeForMatch(value: string) {
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+const fundPriorityKeywords = [
+  'fondo',
+  'fondos',
+  'indexado',
+  'fidelity',
+  'amundi',
+  'clase',
+  'participaciones',
+  'suscripcion fondo',
+  'traspaso fondo',
+  'reembolso fondo'
+];
+
+const etfPriorityKeywords = [
+  'etf',
+  'ucits etf',
+  'ishares etf',
+  'vanguard etf',
+  'ticker',
+  'compra etf'
+];
+
+const transferKeywords = [
+  'transferencia emitida',
+  'transferencia recibida',
+  'traspaso',
+  'ingreso efectivo',
+  'retirada efectivo',
+  'myinvestor',
+  'revolut',
+  'entre cuentas'
+];
+
+function matchesAny(value: string, keywords: string[]) {
+  return keywords.some((keyword) => value.includes(normalizeForMatch(keyword)));
+}
+
+function getCategoryByName(
+  categoriesByName: Map<string, TransactionCategory>,
+  name: string,
+  movementType: MovementType
+) {
+  return categoriesByName.get(`${normalizeForMatch(name)}|${movementType}`) ?? null;
 }
 
 function deriveKeyword(description: string) {

@@ -5,7 +5,8 @@ import {
 } from '@/features/finance/lib/accounts';
 import {
   classifyImportedTransactions,
-  mapMovementTypeToTransactionType
+  mapMovementTypeToTransactionType,
+  type ClassifiedImportTransaction
 } from '@/features/finance/lib/categories';
 import { ImportEngine } from '@/features/finance/lib/import/ImportEngine';
 import type {
@@ -49,6 +50,15 @@ type ExistingTransactionRecord = {
   import_hash: string | null;
 };
 
+type TransferCandidateRecord = {
+  id: string;
+  account_id: string;
+  occurred_at: string;
+  amount: number | string;
+  direction: 'inflow' | 'outflow';
+  transfer_group_id: string | null;
+};
+
 type ImportBatchRecord = {
   id: string;
 };
@@ -61,6 +71,18 @@ type RawImportRecord = {
 type FinancialAccountRecord = {
   id: string;
   name: string;
+};
+
+type InsertedTransactionRecord = {
+  id: string;
+  fingerprint: string;
+  transfer_group_id: string | null;
+};
+
+type TransferLinkPlan = {
+  fingerprint: string;
+  transferGroupId: string;
+  linkedTransactionId: string | null;
 };
 
 export async function getCsvImportContext() {
@@ -164,6 +186,14 @@ export async function saveCsvImport(params: {
   const pendingReviewCount = newTransactions.filter(
     (transaction) => !transaction.isReviewed
   ).length;
+  const transferPlans = await createTransferLinkPlans({
+    accountId,
+    transactions: newTransactions,
+    workspaceId: params.workspaceId
+  });
+  const transferPlansByFingerprint = new Map(
+    transferPlans.map((plan) => [plan.fingerprint, plan])
+  );
 
   const { data: batch, error: batchError } = await supabase
     .from('import_batches')
@@ -235,32 +265,50 @@ export async function saveCsvImport(params: {
     rawRecords.map((record) => [record.record_hash, record.id])
   );
 
-  const { error: transactionsError } = await supabase.from('transactions').insert(
-    newTransactions.map((transaction) => ({
-      account_id: accountId,
-      amount: Math.abs(transaction.amount),
-      booked_at: `${transaction.date}T12:00:00.000Z`,
-      category_id: transaction.categoryId,
-      confidence_score: 0.92,
-      currency: transaction.currency,
-      description: transaction.description,
-      direction: transaction.direction,
-      fingerprint: transaction.fingerprint,
-      import_batch_id: batch.id,
-      import_hash: transaction.importHash,
-      is_reviewed: transaction.isReviewed,
-      movement_type: transaction.movementType,
-      occurred_at: `${transaction.date}T12:00:00.000Z`,
-      raw_import_record_id: rawRecordsByHash.get(transaction.fingerprint),
-      status: 'posted',
-      transaction_type: mapMovementTypeToTransactionType(transaction.movementType),
-      workspace_id: params.workspaceId
-    }))
-  );
+  const { data: insertedTransactions, error: transactionsError } = await supabase
+    .from('transactions')
+    .insert(
+      newTransactions.map((transaction) => {
+        const transferPlan = transferPlansByFingerprint.get(transaction.fingerprint);
+
+        return {
+          account_id: accountId,
+          amount: Math.abs(transaction.amount),
+          booked_at: `${transaction.date}T12:00:00.000Z`,
+          category_id: transaction.categoryId,
+          confidence_score: 0.92,
+          counterparty_container_id: null,
+          currency: transaction.currency,
+          description: transaction.description,
+          direction: transaction.direction,
+          fingerprint: transaction.fingerprint,
+          import_batch_id: batch.id,
+          import_hash: transaction.importHash,
+          is_reviewed: transaction.isReviewed,
+          linked_transaction_id: transferPlan?.linkedTransactionId ?? null,
+          movement_type: transaction.movementType,
+          occurred_at: `${transaction.date}T12:00:00.000Z`,
+          raw_import_record_id: rawRecordsByHash.get(transaction.fingerprint),
+          status: 'posted',
+          transaction_type: mapMovementTypeToTransactionType(transaction.movementType),
+          transfer_group_id: transferPlan?.transferGroupId ?? null,
+          workspace_id: params.workspaceId
+        };
+      })
+    )
+    .select('id, fingerprint, transfer_group_id')
+    .returns<InsertedTransactionRecord[]>();
 
   if (transactionsError) {
     throw transactionsError;
   }
+
+  await linkMatchedTransferTransactions({
+    insertedTransactions,
+    plansByFingerprint: transferPlansByFingerprint,
+    selectedContainerId: params.container.id,
+    workspaceId: params.workspaceId
+  });
 
   return {
     duplicateCount,
@@ -268,6 +316,114 @@ export async function saveCsvImport(params: {
     importedCount: newTransactions.length,
     pendingReviewCount
   } satisfies CsvSaveResult;
+}
+
+async function createTransferLinkPlans(input: {
+  workspaceId: string;
+  accountId: string;
+  transactions: ClassifiedImportTransaction[];
+}) {
+  const plans: TransferLinkPlan[] = [];
+
+  for (const transaction of input.transactions) {
+    if (transaction.movementType !== 'transfer') {
+      continue;
+    }
+
+    const transferGroupId = crypto.randomUUID();
+    const match = await findMatchingTransfer({
+      accountId: input.accountId,
+      amount: transaction.amount,
+      date: transaction.date,
+      direction: transaction.direction,
+      workspaceId: input.workspaceId
+    });
+
+    plans.push({
+      fingerprint: transaction.fingerprint,
+      linkedTransactionId: match?.id ?? null,
+      transferGroupId: match?.transfer_group_id ?? transferGroupId
+    });
+  }
+
+  return plans;
+}
+
+async function findMatchingTransfer(input: {
+  workspaceId: string;
+  accountId: string;
+  date: string;
+  amount: number;
+  direction: 'inflow' | 'outflow';
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const occurredAt = new Date(`${input.date}T12:00:00.000Z`);
+  const from = new Date(occurredAt);
+  from.setUTCDate(from.getUTCDate() - 3);
+  const to = new Date(occurredAt);
+  to.setUTCDate(to.getUTCDate() + 3);
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .select('id, account_id, occurred_at, amount, direction, transfer_group_id')
+    .eq('workspace_id', input.workspaceId)
+    .eq('status', 'posted')
+    .eq('movement_type', 'transfer')
+    .eq('amount', Math.abs(input.amount))
+    .eq('direction', input.direction === 'inflow' ? 'outflow' : 'inflow')
+    .neq('account_id', input.accountId)
+    .is('linked_transaction_id', null)
+    .gte('occurred_at', from.toISOString())
+    .lte('occurred_at', to.toISOString())
+    .order('occurred_at', { ascending: false })
+    .limit(1)
+    .returns<TransferCandidateRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data[0] ?? null;
+}
+
+async function linkMatchedTransferTransactions(input: {
+  workspaceId: string;
+  selectedContainerId: string;
+  insertedTransactions: InsertedTransactionRecord[];
+  plansByFingerprint: Map<string, TransferLinkPlan>;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const client = supabase;
+
+  await Promise.all(
+    input.insertedTransactions.map(async (transaction) => {
+      const plan = input.plansByFingerprint.get(transaction.fingerprint);
+
+      if (!plan?.linkedTransactionId) {
+        return;
+      }
+
+      const { error } = await client
+        .from('transactions')
+        .update({
+          counterparty_container_id: input.selectedContainerId,
+          linked_transaction_id: transaction.id,
+          transfer_group_id: plan.transferGroupId
+        })
+        .eq('id', plan.linkedTransactionId)
+        .eq('workspace_id', input.workspaceId);
+
+      if (error) {
+        throw error;
+      }
+    })
+  );
 }
 
 function mapContainerToImportOption(container: FinancialContainer) {

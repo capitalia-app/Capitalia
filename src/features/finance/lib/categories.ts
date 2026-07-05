@@ -9,12 +9,33 @@ export type TransactionCategory = {
   workspaceId: string | null;
   name: string;
   movementType: MovementType;
+  icon: string | null;
+  color: string | null;
+  parentId: string | null;
   system: boolean;
 };
 
 export type CategoryRule = {
   id: string;
   workspaceId: string | null;
+  keyword: string;
+  categoryId: string;
+  priority: number;
+};
+
+export type SaveCategoryInput = {
+  id?: string;
+  workspaceId: string;
+  name: string;
+  movementType: MovementType;
+  icon?: string | null;
+  color?: string | null;
+  parentId?: string | null;
+};
+
+export type SaveCategoryRuleInput = {
+  id?: string;
+  workspaceId: string;
   keyword: string;
   categoryId: string;
   priority: number;
@@ -32,6 +53,9 @@ type CategoryRecord = {
   workspace_id: string | null;
   name: string;
   movement_type: MovementType;
+  icon: string | null;
+  color: string | null;
+  parent_id: string | null;
   system: boolean;
 };
 
@@ -50,7 +74,7 @@ export async function listTransactionCategories(workspaceId: string) {
 
   const { data, error } = await supabase
     .from('transaction_categories')
-    .select('id, workspace_id, name, movement_type, system')
+    .select('id, workspace_id, name, movement_type, icon, color, parent_id, system')
     .or(`system.eq.true,workspace_id.eq.${workspaceId}`)
     .order('movement_type', { ascending: true })
     .order('name', { ascending: true })
@@ -89,6 +113,115 @@ export async function listCategoryRules(workspaceId: string) {
   }));
 }
 
+export async function saveTransactionCategory(input: SaveCategoryInput) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const payload = {
+    color: input.color?.trim() || null,
+    icon: input.icon?.trim() || null,
+    movement_type: input.movementType,
+    name: input.name.trim(),
+    parent_id: input.parentId || null,
+    system: false,
+    workspace_id: input.workspaceId
+  };
+
+  const request = input.id
+    ? supabase
+        .from('transaction_categories')
+        .update(payload)
+        .eq('id', input.id)
+        .eq('workspace_id', input.workspaceId)
+        .eq('system', false)
+    : supabase.from('transaction_categories').insert(payload);
+
+  const { error } = await request;
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function deleteTransactionCategory(input: {
+  workspaceId: string;
+  categoryId: string;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const { count, error: countError } = await supabase
+    .from('transactions')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', input.workspaceId)
+    .eq('category_id', input.categoryId);
+
+  if (countError) {
+    throw countError;
+  }
+
+  if ((count ?? 0) > 0) {
+    throw new Error('No puedes eliminar una categoria con movimientos asociados.');
+  }
+
+  const { error } = await supabase
+    .from('transaction_categories')
+    .delete()
+    .eq('id', input.categoryId)
+    .eq('workspace_id', input.workspaceId)
+    .eq('system', false);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function saveCategoryRule(input: SaveCategoryRuleInput) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const payload = {
+    category_id: input.categoryId,
+    keyword: input.keyword.trim(),
+    match_type: 'contains',
+    priority: input.priority,
+    workspace_id: input.workspaceId
+  };
+
+  const request = input.id
+    ? supabase
+        .from('category_rules')
+        .update(payload)
+        .eq('id', input.id)
+        .eq('workspace_id', input.workspaceId)
+    : supabase.from('category_rules').insert(payload);
+
+  const { error } = await request;
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function deleteCategoryRule(input: { workspaceId: string; ruleId: string }) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const { error } = await supabase
+    .from('category_rules')
+    .delete()
+    .eq('id', input.ruleId)
+    .eq('workspace_id', input.workspaceId);
+
+  if (error) {
+    throw error;
+  }
+}
+
 export async function classifyImportedTransactions(
   workspaceId: string,
   transactions: ParsedCsvTransaction[]
@@ -112,15 +245,27 @@ export async function classifyImportedTransactions(
         ...Object.values(transaction.rawRow).filter(Boolean)
       ].join(' ')
     );
-    const priorityCategory = getPriorityCategory(normalizedDescription, categoriesByName);
-    const matchedRule = priorityCategory
+    const workspaceRule = findBestRuleMatch(
+      rules.filter((rule) => rule.workspaceId),
+      normalizedDescription
+    );
+    const workspaceRuleCategory = workspaceRule
+      ? categoriesById.get(workspaceRule.categoryId)
+      : null;
+    const priorityCategory = workspaceRuleCategory
       ? null
-      : rules.find((rule) =>
-          normalizedDescription.includes(normalizeForMatch(rule.keyword))
-        );
+      : getPriorityCategory(normalizedDescription, categoriesByName);
+    const systemRule =
+      workspaceRuleCategory || priorityCategory
+        ? null
+        : findBestRuleMatch(
+            rules.filter((rule) => !rule.workspaceId),
+            normalizedDescription
+          );
     const category =
+      workspaceRuleCategory ??
       priorityCategory ??
-      (matchedRule ? categoriesById.get(matchedRule.categoryId) : null);
+      (systemRule ? categoriesById.get(systemRule.categoryId) : null);
     const movementType = category?.movementType ?? transaction.type;
 
     return {
@@ -196,7 +341,7 @@ export async function updateTransactionCategory(params: {
   }
 
   if (params.rememberRule) {
-    const keyword = deriveKeyword(params.description);
+    const keyword = deriveRuleKeyword(params.description);
 
     if (keyword) {
       const { error: ruleError } = await supabase.from('category_rules').insert({
@@ -240,12 +385,33 @@ export function mapMovementTypeToTransactionType(type: MovementType) {
 
 function mapCategoryRecord(record: CategoryRecord) {
   return {
+    color: record.color,
+    icon: record.icon,
     id: record.id,
     movementType: record.movement_type,
     name: record.name,
+    parentId: record.parent_id,
     system: record.system,
     workspaceId: record.workspace_id
   } satisfies TransactionCategory;
+}
+
+function findBestRuleMatch(rules: CategoryRule[], normalizedDescription: string) {
+  const matchingRules = rules.filter((rule) =>
+    normalizedDescription.includes(normalizeForMatch(rule.keyword))
+  );
+
+  return [...matchingRules].sort((left, right) => {
+    if (left.workspaceId && !right.workspaceId) {
+      return -1;
+    }
+
+    if (!left.workspaceId && right.workspaceId) {
+      return 1;
+    }
+
+    return left.priority - right.priority;
+  })[0];
 }
 
 function normalizeForMatch(value: string) {
@@ -302,7 +468,7 @@ function getCategoryByName(
   return categoriesByName.get(`${normalizeForMatch(name)}|${movementType}`) ?? null;
 }
 
-function deriveKeyword(description: string) {
+export function deriveRuleKeyword(description: string) {
   const ignoredWords = new Set(['pago', 'compra', 'tarjeta', 'recibo', 'cargo']);
 
   return normalizeForMatch(description)

@@ -1,15 +1,25 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type Dispatch,
+  type SetStateAction
+} from 'react';
 
 import { CsvImportPanel } from '@/features/finance/components/CsvImportPanel';
 import {
   getCurrentWorkspace,
+  type FinancialAccount,
   type WorkspaceSummary
 } from '@/features/finance/lib/accounts';
 import {
+  deleteCategoryRule,
+  deleteTransactionCategory,
   getMovementTypeLabel,
   listCategoryRules,
   listTransactionCategories,
-  updateTransactionCategory,
+  saveCategoryRule,
+  saveTransactionCategory,
   type CategoryRule,
   type TransactionCategory
 } from '@/features/finance/lib/categories';
@@ -19,6 +29,14 @@ import {
   type DashboardSummary
 } from '@/features/finance/lib/dashboard';
 import type { MovementType } from '@/features/finance/lib/import/types';
+import {
+  getMovementFiltersContext,
+  listMovements,
+  updateMovement,
+  type MoneyMovement,
+  type MovementFilters,
+  type MovementReviewFilter
+} from '@/features/finance/lib/movements';
 import {
   createPatrimonialStartingPoint,
   resetPatrimonialStartingPoint,
@@ -138,6 +156,7 @@ export function AuthenticatedDashboard({
       onCreateSnapshot={() => handleSelectSection('snapshot')}
       onImportMovements={() => handleSelectSection('import')}
       onRetry={() => void loadDashboard()}
+      onViewMovements={() => handleSelectSection('movements')}
     />
   );
 
@@ -359,6 +378,7 @@ type HomePanelProps = {
   onCreateSnapshot: () => void;
   onImportMovements: () => void;
   onRetry: () => void;
+  onViewMovements: () => void;
 };
 
 function HomePanel({
@@ -367,6 +387,7 @@ function HomePanel({
   onCreateSnapshot,
   onImportMovements,
   onRetry,
+  onViewMovements,
   summary
 }: HomePanelProps) {
   if (isLoading) {
@@ -495,7 +516,9 @@ function HomePanel({
         <div className="section-heading">
           <p className="eyebrow">Actividad</p>
           <h2>Ultimos movimientos</h2>
-          <span>{hasTransactions ? 'Datos reales' : 'Sin movimientos'}</span>
+          <button className="text-link" onClick={onViewMovements} type="button">
+            Ver todos los movimientos
+          </button>
         </div>
 
         {hasTransactions ? (
@@ -546,51 +569,118 @@ function MovementsPanel({
   summary
 }: MovementsPanelProps) {
   const [categories, setCategories] = useState<TransactionCategory[]>([]);
-  const [rememberRuleById, setRememberRuleById] = useState<Record<string, boolean>>({});
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
+  const [movements, setMovements] = useState<MoneyMovement[]>([]);
+  const [filters, setFilters] = useState<MovementFilters>(defaultMovementFilters);
+  const [selectedMovement, setSelectedMovement] = useState<MoneyMovement | null>(null);
+  const [editState, setEditState] = useState<MovementEditState | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMovements, setIsLoadingMovements] = useState(false);
+  const [isSavingMovement, setIsSavingMovement] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const workspaceId = summary?.workspace.id;
 
   useEffect(() => {
-    if (!summary?.workspace.id) {
+    if (!workspaceId) {
       setCategories([]);
+      setAccounts([]);
+      setMovements([]);
       return;
     }
 
-    void loadCategories(summary.workspace.id);
-  }, [summary?.workspace.id]);
+    void loadMovementContext(workspaceId);
+  }, [workspaceId]);
 
-  async function loadCategories(workspaceId: string) {
+  const loadMovementPage = useCallback(
+    async (mode: 'reset' | 'append', offset = 0) => {
+      if (!workspaceId) {
+        return;
+      }
+
+      setIsLoadingMovements(true);
+      setLocalError(null);
+
+      try {
+        const result = await listMovements({
+          accounts,
+          categories,
+          filters,
+          limit: 50,
+          offset,
+          workspaceId
+        });
+
+        setMovements((current) =>
+          mode === 'append' ? [...current, ...result.movements] : result.movements
+        );
+        setHasMore(result.hasMore);
+      } catch (movementError) {
+        setLocalError(getErrorMessage(movementError));
+      } finally {
+        setIsLoadingMovements(false);
+      }
+    },
+    [accounts, categories, filters, workspaceId]
+  );
+
+  useEffect(() => {
+    if (!workspaceId || accounts.length === 0) {
+      return;
+    }
+
+    void loadMovementPage('reset');
+  }, [accounts.length, loadMovementPage, workspaceId]);
+
+  async function loadMovementContext(workspaceId: string) {
     try {
-      setCategories(await listTransactionCategories(workspaceId));
-    } catch (categoryError) {
-      setLocalError(getErrorMessage(categoryError));
+      const context = await getMovementFiltersContext(workspaceId);
+      setAccounts(context.accounts);
+      setCategories(context.categories);
+    } catch (contextError) {
+      setLocalError(getErrorMessage(contextError));
     }
   }
 
-  async function handleCategoryChange(
-    transaction: DashboardTransaction,
-    categoryId: string
-  ) {
-    if (!summary || !categoryId) {
+  function openMovementEditor(movement: MoneyMovement) {
+    setSelectedMovement(movement);
+    setEditState({
+      accountId: movement.accountId,
+      categoryId: movement.categoryId ?? '',
+      isReviewed: movement.isReviewed,
+      movementType: movement.movementType,
+      notes: movement.notes ?? '',
+      rememberRule: false
+    });
+  }
+
+  async function handleSaveMovement() {
+    if (!summary || !selectedMovement || !editState) {
       return;
     }
 
-    setUpdatingId(transaction.id);
+    setIsSavingMovement(true);
     setLocalError(null);
 
     try {
-      await updateTransactionCategory({
-        categoryId,
-        description: transaction.description,
-        rememberRule: rememberRuleById[transaction.id] ?? false,
-        transactionId: transaction.id,
+      await updateMovement({
+        accountId: editState.accountId,
+        categoryId: editState.categoryId || null,
+        description: selectedMovement.description,
+        isReviewed: editState.isReviewed,
+        movementType: editState.movementType,
+        notes: editState.notes.trim() || null,
+        rememberRule: editState.rememberRule,
+        transactionId: selectedMovement.id,
         workspaceId: summary.workspace.id
       });
+      setSelectedMovement(null);
+      setEditState(null);
+      await loadMovementPage('reset');
       onUpdated();
-    } catch (updateError) {
-      setLocalError(getErrorMessage(updateError));
+    } catch (saveError) {
+      setLocalError(getErrorMessage(saveError));
     } finally {
-      setUpdatingId(null);
+      setIsSavingMovement(false);
     }
   }
 
@@ -610,74 +700,71 @@ function MovementsPanel({
     );
   }
 
-  const transactions = summary?.recentTransactions ?? [];
-
   return (
     <section className="assets-panel" aria-label="Movimientos">
       <div className="section-heading">
         <p className="eyebrow">Flujo de dinero</p>
-        <h2>Movimientos reales</h2>
-        <span>{transactions.length > 0 ? 'Ultimos 10' : 'Sin movimientos'}</span>
+        <h2>Movimientos</h2>
+        <span>
+          {movements.length > 0 ? `${movements.length} cargados` : 'Sin movimientos'}
+        </span>
       </div>
 
       {localError ? (
         <p className="auth-message auth-message--error">{localError}</p>
       ) : null}
 
-      {transactions.length > 0 ? (
-        <div className="asset-list">
-          {transactions.map((transaction) => (
-            <article className="asset-row transaction-row" key={transaction.id}>
-              <div className="transaction-row__main">
-                <strong>{getTransactionTitle(transaction)}</strong>
-                <span>{getTransactionSubtitle(transaction)}</span>
-                <small>
-                  {getMovementTypeLabel(transaction.movementType)} ·{' '}
-                  {transaction.categoryName ?? 'Sin categoria'}
-                </small>
-              </div>
-              <div className="transaction-row__amount">
-                <strong>
-                  {transaction.direction === 'inflow' ? '+' : '-'}
-                  {formatMoney(transaction.amount, transaction.currency)}
-                </strong>
-                <small>{transaction.isReviewed ? 'Revisado' : 'Pendiente'}</small>
-              </div>
-              <div className="transaction-row__editor">
-                <label>
-                  <span>Categoria</span>
-                  <select
-                    disabled={updatingId === transaction.id}
-                    onChange={(event) => {
-                      void handleCategoryChange(transaction, event.target.value);
-                    }}
-                    value={transaction.categoryId ?? ''}
-                  >
-                    <option value="">Sin categoria</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.name} · {getMovementTypeLabel(category.movementType)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="remember-rule">
-                  <input
-                    checked={rememberRuleById[transaction.id] ?? false}
-                    onChange={(event) =>
-                      setRememberRuleById((current) => ({
-                        ...current,
-                        [transaction.id]: event.target.checked
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  <span>Recordar esta clasificacion para el futuro</span>
-                </label>
-              </div>
-            </article>
-          ))}
-        </div>
+      <MovementFiltersPanel
+        accounts={accounts}
+        categories={categories}
+        filters={filters}
+        onChange={setFilters}
+      />
+
+      {isLoadingMovements && movements.length === 0 ? (
+        <p className="panel-status">Cargando movimientos...</p>
+      ) : null}
+
+      {movements.length > 0 ? (
+        <>
+          <div className="asset-list">
+            {movements.map((movement) => (
+              <button
+                className="asset-row transaction-row transaction-row-button"
+                key={movement.id}
+                onClick={() => openMovementEditor(movement)}
+                type="button"
+              >
+                <div className="transaction-row__main">
+                  <strong>{getTransactionTitle(movement)}</strong>
+                  <span>{getTransactionSubtitle(movement)}</span>
+                  <small>
+                    {getMovementTypeLabel(movement.movementType)} -{' '}
+                    {movement.categoryName ?? 'Sin categoria'}
+                  </small>
+                </div>
+                <div className="transaction-row__amount">
+                  <strong>
+                    {movement.direction === 'inflow' ? '+' : '-'}
+                    {formatMoney(movement.amount, movement.currency)}
+                  </strong>
+                  <small>{movement.isReviewed ? 'Revisado' : 'Pendiente'}</small>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {hasMore ? (
+            <button
+              className="text-link"
+              disabled={isLoadingMovements}
+              onClick={() => void loadMovementPage('append', movements.length)}
+              type="button"
+            >
+              {isLoadingMovements ? 'Cargando...' : 'Cargar mas'}
+            </button>
+          ) : null}
+        </>
       ) : (
         <div className="empty-state-card">
           <span>Sin movimientos</span>
@@ -687,7 +774,312 @@ function MovementsPanel({
           </button>
         </div>
       )}
+
+      {selectedMovement && editState ? (
+        <MovementEditorModal
+          accounts={accounts}
+          categories={categories}
+          editState={editState}
+          isSaving={isSavingMovement}
+          movement={selectedMovement}
+          onClose={() => {
+            setSelectedMovement(null);
+            setEditState(null);
+          }}
+          onSave={() => void handleSaveMovement()}
+          setEditState={setEditState}
+        />
+      ) : null}
     </section>
+  );
+}
+
+type MovementEditState = {
+  movementType: MovementType;
+  categoryId: string;
+  accountId: string;
+  notes: string;
+  isReviewed: boolean;
+  rememberRule: boolean;
+};
+
+const defaultMovementFilters = {
+  accountId: '',
+  categoryId: '',
+  dateFrom: '',
+  dateTo: '',
+  movementType: 'all',
+  search: ''
+} satisfies MovementFilters;
+
+function MovementFiltersPanel({
+  accounts,
+  categories,
+  filters,
+  onChange
+}: {
+  accounts: FinancialAccount[];
+  categories: TransactionCategory[];
+  filters: MovementFilters;
+  onChange: Dispatch<SetStateAction<MovementFilters>>;
+}) {
+  return (
+    <section className="movement-filters" aria-label="Filtros de movimientos">
+      <label>
+        <span>Buscar</span>
+        <input
+          onChange={(event) =>
+            onChange((current) => ({ ...current, search: event.target.value }))
+          }
+          placeholder="Descripcion"
+          type="search"
+          value={filters.search}
+        />
+      </label>
+      <label>
+        <span>Tipo</span>
+        <select
+          onChange={(event) =>
+            onChange((current) => ({
+              ...current,
+              movementType: event.target.value as MovementReviewFilter
+            }))
+          }
+          value={filters.movementType}
+        >
+          <option value="all">Todos</option>
+          <option value="income">Ingresos</option>
+          <option value="expense">Gastos reales</option>
+          <option value="investment">Inversiones</option>
+          <option value="transfer">Transferencias</option>
+          <option value="pending">Pendientes de revisar</option>
+        </select>
+      </label>
+      <label>
+        <span>Cuenta / plataforma</span>
+        <select
+          onChange={(event) =>
+            onChange((current) => ({ ...current, accountId: event.target.value }))
+          }
+          value={filters.accountId}
+        >
+          <option value="">Todas</option>
+          {accounts.map((account) => (
+            <option key={account.id} value={account.id}>
+              {getFinancialAccountLabel(account)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Categoria</span>
+        <select
+          onChange={(event) =>
+            onChange((current) => ({ ...current, categoryId: event.target.value }))
+          }
+          value={filters.categoryId}
+        >
+          <option value="">Todas</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="account-form__grid">
+        <label>
+          <span>Desde</span>
+          <input
+            onChange={(event) =>
+              onChange((current) => ({ ...current, dateFrom: event.target.value }))
+            }
+            type="date"
+            value={filters.dateFrom}
+          />
+        </label>
+        <label>
+          <span>Hasta</span>
+          <input
+            onChange={(event) =>
+              onChange((current) => ({ ...current, dateTo: event.target.value }))
+            }
+            type="date"
+            value={filters.dateTo}
+          />
+        </label>
+      </div>
+    </section>
+  );
+}
+
+function MovementEditorModal({
+  accounts,
+  categories,
+  editState,
+  isSaving,
+  movement,
+  onClose,
+  onSave,
+  setEditState
+}: {
+  accounts: FinancialAccount[];
+  categories: TransactionCategory[];
+  editState: MovementEditState;
+  isSaving: boolean;
+  movement: MoneyMovement;
+  onClose: () => void;
+  onSave: () => void;
+  setEditState: Dispatch<SetStateAction<MovementEditState | null>>;
+}) {
+  const matchingCategories = categories.filter(
+    (category) => category.movementType === editState.movementType
+  );
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="danger-modal movement-editor" role="dialog" aria-modal="true">
+        <div className="section-heading">
+          <p className="eyebrow">Movimiento</p>
+          <h2>Revisar</h2>
+          <span>{movement.description}</span>
+        </div>
+        <div className="account-form">
+          <label>
+            <span>Tipo</span>
+            <select
+              onChange={(event) =>
+                setEditState((current) =>
+                  current
+                    ? {
+                        ...current,
+                        categoryId: '',
+                        movementType: event.target.value as MovementType
+                      }
+                    : current
+                )
+              }
+              value={editState.movementType}
+            >
+              <option value="income">Ingreso</option>
+              <option value="expense">Gasto real</option>
+              <option value="investment">Inversion</option>
+              <option value="transfer">Transferencia interna</option>
+            </select>
+          </label>
+          <label>
+            <span>Categoria</span>
+            <select
+              onChange={(event) =>
+                setEditState((current) =>
+                  current ? { ...current, categoryId: event.target.value } : current
+                )
+              }
+              value={editState.categoryId}
+            >
+              <option value="">Sin categoria</option>
+              {matchingCategories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Cuenta / plataforma</span>
+            <select
+              onChange={(event) =>
+                setEditState((current) =>
+                  current ? { ...current, accountId: event.target.value } : current
+                )
+              }
+              value={editState.accountId}
+            >
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {getFinancialAccountLabel(account)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Notas</span>
+            <textarea
+              onChange={(event) =>
+                setEditState((current) =>
+                  current ? { ...current, notes: event.target.value } : current
+                )
+              }
+              value={editState.notes}
+            />
+          </label>
+          <label className="remember-rule">
+            <input
+              checked={editState.isReviewed}
+              onChange={(event) =>
+                setEditState((current) =>
+                  current ? { ...current, isReviewed: event.target.checked } : current
+                )
+              }
+              type="checkbox"
+            />
+            <span>Marcar como revisado</span>
+          </label>
+          <label className="remember-rule">
+            <input
+              checked={editState.movementType === 'transfer'}
+              onChange={(event) =>
+                setEditState((current) =>
+                  current
+                    ? {
+                        ...current,
+                        categoryId: '',
+                        movementType: event.target.checked
+                          ? 'transfer'
+                          : current.movementType === 'transfer'
+                            ? 'expense'
+                            : current.movementType
+                      }
+                    : current
+                )
+              }
+              type="checkbox"
+            />
+            <span>Transferencia interna</span>
+          </label>
+          <label className="remember-rule">
+            <input
+              checked={editState.rememberRule}
+              onChange={(event) =>
+                setEditState((current) =>
+                  current ? { ...current, rememberRule: event.target.checked } : current
+                )
+              }
+              type="checkbox"
+            />
+            <span>Guardar y recordar regla</span>
+          </label>
+        </div>
+        <div className="account-form__actions">
+          <button
+            className="text-link"
+            disabled={isSaving}
+            onClick={onClose}
+            type="button"
+          >
+            Cancelar
+          </button>
+          <button
+            className="danger-button"
+            disabled={isSaving}
+            onClick={onSave}
+            type="button"
+          >
+            {isSaving ? 'Guardando...' : 'Guardar'}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -695,9 +1087,44 @@ type CategoriesPanelProps = {
   summary: DashboardSummary | null;
 };
 
+type CategoryFormState = {
+  id: string | null;
+  name: string;
+  movementType: MovementType;
+  icon: string;
+  color: string;
+  parentId: string;
+};
+
+type RuleFormState = {
+  id: string | null;
+  keyword: string;
+  categoryId: string;
+  priority: string;
+};
+
+const emptyCategoryForm: CategoryFormState = {
+  color: '',
+  icon: '',
+  id: null,
+  movementType: 'expense',
+  name: '',
+  parentId: ''
+};
+
+const emptyRuleForm: RuleFormState = {
+  categoryId: '',
+  id: null,
+  keyword: '',
+  priority: '50'
+};
+
 function CategoriesPanel({ summary }: CategoriesPanelProps) {
   const [categories, setCategories] = useState<TransactionCategory[]>([]);
   const [rules, setRules] = useState<CategoryRule[]>([]);
+  const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
+  const [ruleForm, setRuleForm] = useState<RuleFormState>(emptyRuleForm);
+  const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -729,6 +1156,102 @@ function CategoriesPanel({ summary }: CategoriesPanelProps) {
     }
   }
 
+  async function handleSaveCategory() {
+    if (!summary || !categoryForm.name.trim()) {
+      setError('Escribe un nombre para la categoria.');
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      await saveTransactionCategory({
+        color: categoryForm.color,
+        icon: categoryForm.icon,
+        id: categoryForm.id ?? undefined,
+        movementType: categoryForm.movementType,
+        name: categoryForm.name,
+        parentId: categoryForm.parentId || null,
+        workspaceId: summary.workspace.id
+      });
+      setCategoryForm(emptyCategoryForm);
+      await loadCategoryData(summary.workspace.id);
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteCategory(category: TransactionCategory) {
+    if (!summary || category.system) {
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      await deleteTransactionCategory({
+        categoryId: category.id,
+        workspaceId: summary.workspace.id
+      });
+      await loadCategoryData(summary.workspace.id);
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleSaveRule() {
+    if (!summary || !ruleForm.keyword.trim() || !ruleForm.categoryId) {
+      setError('Completa keyword y categoria para la regla.');
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      await saveCategoryRule({
+        categoryId: ruleForm.categoryId,
+        id: ruleForm.id ?? undefined,
+        keyword: ruleForm.keyword,
+        priority: Number(ruleForm.priority),
+        workspaceId: summary.workspace.id
+      });
+      setRuleForm(emptyRuleForm);
+      await loadCategoryData(summary.workspace.id);
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteRule(rule: CategoryRule) {
+    if (!summary || !rule.workspaceId) {
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      await deleteCategoryRule({
+        ruleId: rule.id,
+        workspaceId: summary.workspace.id
+      });
+      await loadCategoryData(summary.workspace.id);
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   if (isLoading) {
     return <p className="panel-status">Cargando categorias...</p>;
   }
@@ -749,6 +1272,102 @@ function CategoriesPanel({ summary }: CategoriesPanelProps) {
         <h2>Motor financiero</h2>
         <span>Reglas reales de clasificacion</span>
       </div>
+
+      <section className="account-form" aria-label="Crear categoria">
+        <div className="section-heading">
+          <p className="eyebrow">Crear categoria</p>
+          <span>Las categorias personalizadas aparecen en filtros e importaciones.</span>
+        </div>
+        <label>
+          <span>Nombre</span>
+          <input
+            onChange={(event) =>
+              setCategoryForm((current) => ({ ...current, name: event.target.value }))
+            }
+            placeholder="Ej. Gimnasio"
+            type="text"
+            value={categoryForm.name}
+          />
+        </label>
+        <label>
+          <span>Tipo</span>
+          <select
+            onChange={(event) =>
+              setCategoryForm((current) => ({
+                ...current,
+                movementType: event.target.value as MovementType
+              }))
+            }
+            value={categoryForm.movementType}
+          >
+            <option value="income">income</option>
+            <option value="expense">expense</option>
+            <option value="investment">investment</option>
+            <option value="transfer">transfer</option>
+          </select>
+        </label>
+        <div className="account-form__grid">
+          <label>
+            <span>Icono opcional</span>
+            <input
+              onChange={(event) =>
+                setCategoryForm((current) => ({ ...current, icon: event.target.value }))
+              }
+              placeholder="circle"
+              type="text"
+              value={categoryForm.icon}
+            />
+          </label>
+          <label>
+            <span>Color opcional</span>
+            <input
+              onChange={(event) =>
+                setCategoryForm((current) => ({ ...current, color: event.target.value }))
+              }
+              placeholder="#C4A15A"
+              type="text"
+              value={categoryForm.color}
+            />
+          </label>
+        </div>
+        <label>
+          <span>Categoria padre opcional</span>
+          <select
+            onChange={(event) =>
+              setCategoryForm((current) => ({
+                ...current,
+                parentId: event.target.value
+              }))
+            }
+            value={categoryForm.parentId}
+          >
+            <option value="">Sin categoria padre</option>
+            {categories
+              .filter((category) => category.movementType === categoryForm.movementType)
+              .map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <div className="account-form__actions">
+          <button
+            className="text-link"
+            onClick={() => setCategoryForm(emptyCategoryForm)}
+            type="button"
+          >
+            Limpiar
+          </button>
+          <ActionButton
+            disabled={isSaving}
+            onClick={() => void handleSaveCategory()}
+            type="button"
+          >
+            {categoryForm.id ? 'Guardar categoria' : 'Crear categoria'}
+          </ActionButton>
+        </div>
+      </section>
 
       <div className="category-groups">
         {movementGroups.map((group) => {
@@ -779,6 +1398,34 @@ function CategoriesPanel({ summary }: CategoriesPanelProps) {
                           ? categoryRules.map((rule) => rule.keyword).join(', ')
                           : 'Sin reglas asociadas'}
                       </small>
+                      {!category.system ? (
+                        <div className="empty-state-actions">
+                          <button
+                            className="text-link"
+                            onClick={() =>
+                              setCategoryForm({
+                                color: category.color ?? '',
+                                icon: category.icon ?? '',
+                                id: category.id,
+                                movementType: category.movementType,
+                                name: category.name,
+                                parentId: category.parentId ?? ''
+                              })
+                            }
+                            type="button"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            className="text-link"
+                            disabled={isSaving}
+                            onClick={() => void handleDeleteCategory(category)}
+                            type="button"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      ) : null}
                     </article>
                   );
                 })
@@ -792,6 +1439,112 @@ function CategoriesPanel({ summary }: CategoriesPanelProps) {
           );
         })}
       </div>
+
+      <section className="account-form" aria-label="Reglas automaticas">
+        <div className="section-heading">
+          <p className="eyebrow">Reglas</p>
+          <span>Menor prioridad numerica significa mas prioridad.</span>
+        </div>
+        <label>
+          <span>Keyword</span>
+          <input
+            onChange={(event) =>
+              setRuleForm((current) => ({ ...current, keyword: event.target.value }))
+            }
+            placeholder="mercadona"
+            type="text"
+            value={ruleForm.keyword}
+          />
+        </label>
+        <label>
+          <span>Categoria</span>
+          <select
+            onChange={(event) =>
+              setRuleForm((current) => ({ ...current, categoryId: event.target.value }))
+            }
+            value={ruleForm.categoryId}
+          >
+            <option value="">Selecciona categoria</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name} - {getMovementTypeLabel(category.movementType)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Prioridad</span>
+          <input
+            min="1"
+            onChange={(event) =>
+              setRuleForm((current) => ({ ...current, priority: event.target.value }))
+            }
+            type="number"
+            value={ruleForm.priority}
+          />
+        </label>
+        <div className="account-form__actions">
+          <button
+            className="text-link"
+            onClick={() => setRuleForm(emptyRuleForm)}
+            type="button"
+          >
+            Limpiar
+          </button>
+          <ActionButton
+            disabled={isSaving}
+            onClick={() => void handleSaveRule()}
+            type="button"
+          >
+            {ruleForm.id ? 'Guardar regla' : 'Crear regla'}
+          </ActionButton>
+        </div>
+        <div className="asset-list">
+          {rules.map((rule) => {
+            const category = categories.find(
+              (candidate) => candidate.id === rule.categoryId
+            );
+
+            return (
+              <article className="category-card" key={rule.id}>
+                <div>
+                  <strong>{rule.keyword}</strong>
+                  <span>
+                    {category?.name ?? 'Categoria'} - prioridad {rule.priority}
+                  </span>
+                </div>
+                <small>{rule.workspaceId ? 'Personalizada' : 'Sistema'}</small>
+                {rule.workspaceId ? (
+                  <div className="empty-state-actions">
+                    <button
+                      className="text-link"
+                      onClick={() =>
+                        setRuleForm({
+                          categoryId: rule.categoryId,
+                          id: rule.id,
+                          keyword: rule.keyword,
+                          priority: String(rule.priority)
+                        })
+                      }
+                      type="button"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      className="text-link"
+                      disabled={isSaving}
+                      onClick={() => void handleDeleteRule(rule)}
+                      type="button"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      </section>
     </section>
   );
 }
@@ -2115,7 +2868,30 @@ function formatDate(date: string) {
   }).format(new Date(date));
 }
 
-function getTransactionTitle(transaction: DashboardTransaction) {
+function getFinancialAccountLabel(account: FinancialAccount) {
+  if (
+    account.institutionName &&
+    account.institutionName !== 'Manual' &&
+    !account.name.toLowerCase().includes(account.institutionName.toLowerCase())
+  ) {
+    return `${account.institutionName} / ${account.name}`;
+  }
+
+  return account.name;
+}
+
+type TransactionDisplay = Pick<
+  DashboardTransaction,
+  | 'accountName'
+  | 'description'
+  | 'direction'
+  | 'linkedAccountName'
+  | 'linkedTransactionId'
+  | 'movementType'
+  | 'occurredAt'
+>;
+
+function getTransactionTitle(transaction: TransactionDisplay) {
   if (transaction.movementType !== 'transfer') {
     return transaction.description;
   }
@@ -2127,7 +2903,7 @@ function getTransactionTitle(transaction: DashboardTransaction) {
   return 'Transferencia interna';
 }
 
-function getTransactionSubtitle(transaction: DashboardTransaction) {
+function getTransactionSubtitle(transaction: TransactionDisplay) {
   const date = formatDate(transaction.occurredAt);
 
   if (transaction.movementType !== 'transfer') {

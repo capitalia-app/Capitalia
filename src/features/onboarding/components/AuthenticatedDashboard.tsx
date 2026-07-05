@@ -135,7 +135,6 @@ export function AuthenticatedDashboard({
       error={error}
       isLoading={isLoading}
       summary={summary}
-      onCreateAccount={() => handleSelectSection('accounts')}
       onCreateSnapshot={() => handleSelectSection('snapshot')}
       onImportMovements={() => handleSelectSection('import')}
       onRetry={() => void loadDashboard()}
@@ -357,7 +356,6 @@ type HomePanelProps = {
   error: string | null;
   isLoading: boolean;
   summary: DashboardSummary | null;
-  onCreateAccount: () => void;
   onCreateSnapshot: () => void;
   onImportMovements: () => void;
   onRetry: () => void;
@@ -366,7 +364,6 @@ type HomePanelProps = {
 function HomePanel({
   error,
   isLoading,
-  onCreateAccount,
   onCreateSnapshot,
   onImportMovements,
   onRetry,
@@ -392,8 +389,18 @@ function HomePanel({
     return null;
   }
 
-  const hasAccounts = summary.accounts.length > 0;
+  const hasContainers = summary.containers.length > 0;
   const hasTransactions = summary.recentTransactions.length > 0;
+  const hasStartingPoint = Boolean(summary.snapshot);
+  const containerGrossWorth = getAllContainerAssets(summary.containers)
+    .filter((asset) => asset.assetType !== 'liability')
+    .reduce((total, asset) => total + Math.max(asset.manualValue, 0), 0);
+  const containerDebt = getAllContainerAssets(summary.containers)
+    .filter((asset) => asset.assetType === 'liability')
+    .reduce((total, asset) => total + Math.abs(asset.manualValue), 0);
+  const initialGrossWorth = summary.initialGrossWorth ?? containerGrossWorth;
+  const initialDebt = summary.initialDebt ?? containerDebt;
+  const initialNetWorth = summary.initialNetWorth ?? initialGrossWorth - initialDebt;
 
   return (
     <>
@@ -411,7 +418,7 @@ function HomePanel({
         </small>
       </section>
 
-      {!summary.snapshot ? (
+      {!hasStartingPoint && !hasContainers ? (
         <section className="empty-state-card">
           <span>Define tu punto de partida</span>
           <p>
@@ -426,59 +433,22 @@ function HomePanel({
         <section className="metric-grid" aria-label="Resumen desde punto de partida">
           <MetricCard
             label="Patrimonio inicial"
-            value={formatMoney(summary.initialNetWorth ?? 0, summary.currency)}
+            value={formatMoney(initialNetWorth, summary.currency)}
             hint="Punto de partida"
           />
           <MetricCard
-            label="Patrimonio bruto inicial"
-            value={formatMoney(summary.initialGrossWorth ?? 0, summary.currency)}
+            label="Patrimonio bruto"
+            value={formatMoney(initialGrossWorth, summary.currency)}
           />
-          <MetricCard
-            label="Deudas iniciales"
-            value={formatMoney(summary.initialDebt ?? 0, summary.currency)}
-          />
-          <MetricCard
-            label="Patrimonio neto inicial"
-            value={formatMoney(summary.initialNetWorth ?? 0, summary.currency)}
-          />
-          <MetricCard
-            label="Fecha de inicio"
-            value={formatDate(summary.snapshot.snapshotDate)}
-          />
-          <MetricCard
-            label="Ingresos desde inicio"
-            value={formatMoney(summary.incomeSinceStart, summary.currency)}
-          />
-          <MetricCard
-            label="Gastos desde inicio"
-            value={formatMoney(summary.expensesSinceStart, summary.currency)}
-            hint="Gastos reales"
-          />
-          <MetricCard
-            label="Invertido desde inicio"
-            value={formatMoney(summary.investedSinceStart, summary.currency)}
-          />
-          <MetricCard
-            label="Transferencias"
-            value={formatMoney(summary.transfersSinceStart, summary.currency)}
-          />
-          <MetricCard
-            label="Patrimonio estimado"
-            value={formatMoney(summary.estimatedNetWorth, summary.currency)}
-          />
+          <MetricCard label="Deudas" value={formatMoney(initialDebt, summary.currency)} />
         </section>
       )}
 
-      <ContainerBreakdown
-        containers={summary.containers}
-        currency={summary.currency}
-        title="Cuentas y plataformas"
-      />
-
       <section className="metric-grid" aria-label="Resumen mensual real">
         <MetricCard
-          label="Patrimonio"
-          value={formatMoney(summary.netWorth, summary.currency)}
+          label="Balance mensual"
+          value={formatMoney(summary.monthBalance, summary.currency)}
+          hint="Ingresos - gastos reales"
         />
         <MetricCard
           label="Ingresos"
@@ -499,58 +469,26 @@ function HomePanel({
           value={formatMoney(summary.monthTransfers, summary.currency)}
           hint="Sin impacto en balance"
         />
-        <MetricCard
-          label="Balance"
-          value={formatMoney(summary.monthBalance, summary.currency)}
-          hint="Ingresos - gastos reales"
-        />
       </section>
 
-      {hasTransactions ? (
-        <section className="empty-state-card">
-          <span>Tasa de construccion patrimonial</span>
-          <p>{getWealthBuildCopy(summary.wealthBuildRate)}</p>
-        </section>
-      ) : null}
-
-      {!hasAccounts ? (
+      {!hasContainers && !hasStartingPoint ? (
         <section className="empty-state-card">
           <span>Importa tu primera cuenta</span>
-          <p>Crea una cuenta financiera para empezar a construir tu dashboard real.</p>
+          <p>Define tu punto de partida antes de importar movimientos.</p>
           <div className="empty-state-actions">
-            <button className="text-link" onClick={onCreateAccount} type="button">
-              Crear cuenta
+            <button className="text-link" onClick={onCreateSnapshot} type="button">
+              Configurar patrimonio inicial
             </button>
             <button className="text-link" onClick={onImportMovements} type="button">
               Importar movimientos
             </button>
           </div>
         </section>
-      ) : (
-        <section className="account-list" aria-label="Saldos por cuenta">
-          {summary.accounts.map((account) => (
-            <article className="account-row" key={account.id}>
-              <div>
-                <strong>{account.name}</strong>
-                <span>Saldo real</span>
-              </div>
-              <div>
-                <strong>{formatMoney(account.balance, account.currency)}</strong>
-                <small>{account.currency}</small>
-              </div>
-            </article>
-          ))}
-        </section>
-      )}
+      ) : null}
 
       <button className="import-entry-card" onClick={onImportMovements} type="button">
         <span>Importar movimientos</span>
         <strong>Excel o CSV bancario</strong>
-        <small>
-          {hasAccounts
-            ? 'Sube tus movimientos reales para alimentar el dashboard.'
-            : 'Primero crea una cuenta para poder importar movimientos.'}
-        </small>
       </button>
 
       <section className="assets-panel" aria-label="Ultimos movimientos">
@@ -910,6 +848,7 @@ function ContainersPanel({ onCreateStartingPoint, summary }: ContainersPanelProp
 function AssetsPanel({ summary }: AssetsPanelProps) {
   const assets = getAllContainerAssets(summary?.containers ?? []);
   const groups = groupAssetsByType(assets);
+  const currency = summary?.currency ?? 'EUR';
 
   if (assets.length === 0) {
     return (
@@ -931,8 +870,16 @@ function AssetsPanel({ summary }: AssetsPanelProps) {
 
       <div className="category-groups">
         {groups.map((group) => (
-          <section className="category-group" key={group.type}>
-            <h3>{getAssetTypeLabel(group.type)}</h3>
+          <details className="container-card" key={group.type}>
+            <summary>
+              <div>
+                <strong>{getAssetTypeLabel(group.type)}</strong>
+                <span>
+                  {group.assets.length} {group.assets.length === 1 ? 'activo' : 'activos'}
+                </span>
+              </div>
+              <strong>{formatMoney(group.total, currency)}</strong>
+            </summary>
             <div className="asset-list">
               {group.assets.map((asset) => (
                 <article className="asset-row" key={asset.id}>
@@ -947,7 +894,7 @@ function AssetsPanel({ summary }: AssetsPanelProps) {
                 </article>
               ))}
             </div>
-          </section>
+          </details>
         ))}
       </div>
     </section>
@@ -2168,18 +2115,6 @@ function formatDate(date: string) {
     month: 'short',
     year: 'numeric'
   }).format(new Date(date));
-}
-
-function getWealthBuildCopy(rate: number | null) {
-  if (rate === null) {
-    return 'Importa movimientos de ingresos y gastos reales para calcularla.';
-  }
-
-  if (rate < 0) {
-    return 'Este mes tu flujo patrimonial ha sido negativo.';
-  }
-
-  return `Este mes has destinado ${rate.toFixed(0)}% de tus ingresos a construir patrimonio.`;
 }
 
 function getSnapshotTypeLabel(type: SnapshotItemType) {

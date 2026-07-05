@@ -532,17 +532,15 @@ h1 {
 
 .import-entry-card {
   display: grid;
-  gap: 5px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 14px;
   width: 100%;
   border: 1px solid rgba(196, 161, 90, 0.28);
   border-radius: 8px;
-  padding: 16px;
+  padding: 12px 14px;
   color: inherit;
-  background:
-    linear-gradient(135deg, rgba(196, 161, 90, 0.18), rgba(107, 133, 113, 0.12)),
-    rgba(244, 239, 228, 0.08);
+  background: rgba(244, 239, 228, 0.08);
   text-align: left;
-  box-shadow: var(--shadow);
   backdrop-filter: blur(20px);
   animation: card-in 720ms cubic-bezier(0.2, 0.85, 0.2, 1) both 180ms;
 }
@@ -556,14 +554,15 @@ h1 {
 
 .import-entry-card strong {
   color: var(--paper);
-  font-size: 1.18rem;
+  font-size: 1rem;
   line-height: 1.1;
 }
 
 .import-entry-card small {
+  grid-column: 1 / -1;
   max-width: 34ch;
   color: rgba(244, 239, 228, 0.58);
-  font-size: 0.84rem;
+  font-size: 0.78rem;
   line-height: 1.45;
 }
 

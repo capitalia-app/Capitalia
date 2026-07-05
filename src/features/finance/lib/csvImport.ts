@@ -6,12 +6,13 @@ import {
 } from '@/features/finance/lib/accounts';
 import { ImportEngine } from '@/features/finance/lib/import/ImportEngine';
 import type {
+  IgnoredImportRow,
   ImportParseResult,
   ParsedCsvTransaction
 } from '@/features/finance/lib/import/types';
 import { supabase } from '@/shared/lib/supabase';
 
-export type { ImportParseResult, ParsedCsvTransaction };
+export type { IgnoredImportRow, ImportParseResult, ParsedCsvTransaction };
 
 export type CsvImportContext = {
   workspace: WorkspaceSummary;
@@ -21,6 +22,7 @@ export type CsvImportContext = {
 export type CsvSaveResult = {
   importedCount: number;
   duplicateCount: number;
+  ignoredCount: number;
 };
 
 type ExistingTransactionRecord = {
@@ -55,6 +57,7 @@ export async function saveCsvImport(params: {
   accountId: string;
   fileName: string;
   transactions: ParsedCsvTransaction[];
+  ignoredRows?: IgnoredImportRow[];
 }) {
   if (!supabase) {
     throw new Error('Supabase no esta configurado.');
@@ -89,6 +92,7 @@ export async function saveCsvImport(params: {
       metadata: {
         duplicate_rows: params.transactions.length - newTransactions.length,
         file_name: params.fileName,
+        ignored_rows: params.ignoredRows?.length ?? 0,
         imported_rows: newTransactions.length,
         parser: sourceFormat,
         total_rows: params.transactions.length
@@ -108,6 +112,7 @@ export async function saveCsvImport(params: {
   if (newTransactions.length === 0) {
     return {
       duplicateCount: params.transactions.length,
+      ignoredCount: params.ignoredRows?.length ?? 0,
       importedCount: 0
     } satisfies CsvSaveResult;
   }
@@ -170,6 +175,7 @@ export async function saveCsvImport(params: {
 
   return {
     duplicateCount: params.transactions.length - newTransactions.length,
+    ignoredCount: params.ignoredRows?.length ?? 0,
     importedCount: newTransactions.length
   } satisfies CsvSaveResult;
 }

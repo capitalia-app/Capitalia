@@ -23,22 +23,16 @@ export type ImportSheet = {
   rows: string[][];
 };
 
-export type AdapterMatch = {
-  sheet: ImportSheet;
-  headerIndex: number;
-  columns: Record<string, number>;
-};
-
-export type ImportAdapter = {
-  id: string;
-  label: string;
-  sourceFormat: string;
-  detect(sheets: ImportSheet[]): AdapterMatch | null;
-  parse(match: AdapterMatch, fallbackCurrency: string): Promise<ParsedCsvTransaction[]>;
+export type IgnoredImportRow = {
+  sheetName: string;
+  rowNumber: number;
+  reason: string;
+  rawRow: Record<string, string>;
 };
 
 export type ImportParseResult = {
   sourceFormat: string;
   label: string;
   transactions: ParsedCsvTransaction[];
+  ignoredRows: IgnoredImportRow[];
 };

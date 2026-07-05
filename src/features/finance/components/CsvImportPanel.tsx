@@ -6,6 +6,7 @@ import {
   parseImportFile,
   saveCsvImport,
   type CsvImportContext,
+  type IgnoredImportRow,
   type ParsedCsvTransaction
 } from '@/features/finance/lib/csvImport';
 
@@ -19,6 +20,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
   const [selectedFileName, setSelectedFileName] = useState('');
   const [detectedFormat, setDetectedFormat] = useState('');
   const [previewRows, setPreviewRows] = useState<ParsedCsvTransaction[]>([]);
+  const [ignoredRows, setIgnoredRows] = useState<IgnoredImportRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isParsing, setIsParsing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -57,6 +59,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
     setSuccess(null);
     setDetectedFormat('');
     setPreviewRows([]);
+    setIgnoredRows([]);
 
     if (!file) {
       setSelectedFileName('');
@@ -77,9 +80,11 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
 
       setDetectedFormat(parsedImport.sourceFormat);
       setPreviewRows(parsedImport.transactions);
+      setIgnoredRows(parsedImport.ignoredRows);
     } catch (parseError) {
       setSelectedFileName('');
       setDetectedFormat('');
+      setIgnoredRows([]);
       setError(getErrorMessage(parseError));
     } finally {
       setIsParsing(false);
@@ -107,15 +112,15 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
         workspaceId: context.workspace.id,
         accountId: selectedAccount.id,
         fileName: selectedFileName,
+        ignoredRows,
         transactions: previewRows
       });
 
       setSuccess(
-        `Importacion completada: ${result.importedCount} movimientos nuevos, ${result.duplicateCount} duplicados omitidos.`
+        `Importacion completada: ${result.importedCount} movimientos importados, ${result.duplicateCount} duplicados omitidos y ${result.ignoredCount} movimientos ignorados.`
       );
       setPreviewRows([]);
       setSelectedFileName('');
-      setDetectedFormat('');
     } catch (saveError) {
       setError(getErrorMessage(saveError));
     } finally {
@@ -159,6 +164,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
               onChange={(event) => {
                 setSelectedAccountId(event.target.value);
                 setPreviewRows([]);
+                setIgnoredRows([]);
                 setSelectedFileName('');
                 setDetectedFormat('');
                 setSuccess(null);
@@ -176,9 +182,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
 
           <label className="file-drop">
             <span>{selectedFileName || 'Seleccionar Excel o CSV'}</span>
-            <small>
-              BBVA, MyInvestor o CSV generico con fecha, descripcion e importe
-            </small>
+            <small>Excel o CSV bancario con fecha, descripcion e importe</small>
             <input
               accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               disabled={isParsing || isSaving}
@@ -229,6 +233,26 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
             {isSaving ? 'Guardando...' : 'Guardar movimientos'}
           </ActionButton>
         </>
+      ) : null}
+
+      {ignoredRows.length > 0 ? (
+        <div className="csv-ignored-list" aria-label="Movimientos ignorados">
+          <div className="csv-preview-summary">
+            <span>{ignoredRows.length} movimientos ignorados</span>
+            <strong>Revision</strong>
+          </div>
+          {ignoredRows.slice(0, 8).map((row) => (
+            <article
+              className="csv-ignored-row"
+              key={`${row.sheetName}-${row.rowNumber}-${row.reason}`}
+            >
+              <strong>
+                {row.sheetName} - fila {row.rowNumber}
+              </strong>
+              <span>{row.reason}</span>
+            </article>
+          ))}
+        </div>
       ) : null}
     </section>
   );

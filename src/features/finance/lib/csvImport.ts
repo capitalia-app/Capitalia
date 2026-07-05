@@ -28,6 +28,11 @@ export type CsvSaveResult = {
   duplicateCount: number;
 };
 
+export type ParsedImportResult = {
+  detectedFormat: string;
+  transactions: ParsedCsvTransaction[];
+};
+
 type ExistingTransactionRecord = {
   fingerprint: string | null;
 };
@@ -55,6 +60,7 @@ type HeaderMatch = {
     movement: number;
     amount: number;
     currency: number;
+    availableBalance: number;
   };
 };
 
@@ -92,13 +98,17 @@ export async function getCsvImportContext() {
 
 export async function parseBbvaCsvFile(file: File, fallbackCurrency: string) {
   const sheets = await readImportSheets(file);
-  const parsedImport = await parseWithAvailableAdapters(sheets, fallbackCurrency);
+  const parsedImport = await parseWithAvailableAdapters(
+    sheets,
+    fallbackCurrency,
+    isExcelFile(file) ? 'excel' : 'csv'
+  );
 
   if (parsedImport.transactions.length === 0) {
     throw new Error('No se encontraron movimientos importables en el archivo.');
   }
 
-  return parsedImport.transactions;
+  return parsedImport satisfies ParsedImportResult;
 }
 
 export async function saveCsvImport(params: {
@@ -230,16 +240,21 @@ async function readImportSheets(file: File) {
       cellDates: false,
       raw: false
     });
+    const firstSheetName = workbook.SheetNames[0];
 
-    return workbook.SheetNames.map((sheetName) => {
-      const sheet = workbook.Sheets[sheetName];
+    if (!firstSheetName) {
+      return [];
+    }
 
-      if (!sheet) {
-        return null;
-      }
+    const sheet = workbook.Sheets[firstSheetName];
 
-      return {
-        name: sheetName,
+    if (!sheet) {
+      return [];
+    }
+
+    return [
+      {
+        name: firstSheetName,
         rows: normalizeRows(
           XLSX.utils.sheet_to_json<string[]>(sheet, {
             header: 1,
@@ -248,8 +263,8 @@ async function readImportSheets(file: File) {
             raw: false
           })
         )
-      };
-    }).filter((sheet): sheet is ImportSheet => sheet !== null && sheet.rows.length > 0);
+      }
+    ].filter((importSheet) => importSheet.rows.length > 0);
   }
 
   return [
@@ -262,7 +277,8 @@ async function readImportSheets(file: File) {
 
 async function parseWithAvailableAdapters(
   sheets: ImportSheet[],
-  fallbackCurrency: string
+  fallbackCurrency: string,
+  fileKind: 'csv' | 'excel'
 ) {
   for (const adapter of bankImportAdapters) {
     for (const sheet of sheets) {
@@ -294,16 +310,15 @@ async function parseWithAvailableAdapters(
 
       if (transactions.length > 0) {
         return {
-          adapter,
-          sheet,
+          detectedFormat: `${adapter.label} ${fileKind === 'excel' ? 'Excel' : 'CSV'}`,
           transactions
-        };
+        } satisfies ParsedImportResult;
       }
     }
   }
 
   throw new Error(
-    'Formato no reconocido. Capitalia espera el CSV o Excel oficial de BBVA con columnas Valor, Fecha, Concepto, Movimiento, Importe y Divisa.'
+    'Formato no reconocido. Capitalia espera el CSV o Excel oficial de BBVA con columnas Valor, Fecha, Concepto, Movimiento, Importe, Divisa y Disponible.'
   );
 }
 
@@ -316,7 +331,8 @@ function findBbvaHeader(rows: string[][]) {
       concept: findExactColumn(normalizedRow, ['concepto']),
       movement: findExactColumn(normalizedRow, ['movimiento']),
       amount: findExactColumn(normalizedRow, ['importe']),
-      currency: findExactColumn(normalizedRow, ['divisa', 'moneda'])
+      currency: findExactColumn(normalizedRow, ['divisa', 'moneda']),
+      availableBalance: findExactColumn(normalizedRow, ['disponible'])
     };
 
     if (

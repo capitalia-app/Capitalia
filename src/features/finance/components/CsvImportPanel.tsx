@@ -17,6 +17,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
   const [context, setContext] = useState<CsvImportContext | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [selectedFileName, setSelectedFileName] = useState('');
+  const [detectedFormat, setDetectedFormat] = useState<string | null>(null);
   const [previewRows, setPreviewRows] = useState<ParsedCsvTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isParsing, setIsParsing] = useState(false);
@@ -54,6 +55,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
 
     setError(null);
     setSuccess(null);
+    setDetectedFormat(null);
     setPreviewRows([]);
 
     if (!file) {
@@ -71,11 +73,13 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
     setSelectedFileName(file.name);
 
     try {
-      const rows = await parseBbvaCsvFile(file, selectedAccount.currency);
+      const result = await parseBbvaCsvFile(file, selectedAccount.currency);
 
-      setPreviewRows(rows);
+      setDetectedFormat(result.detectedFormat);
+      setPreviewRows(result.transactions);
     } catch (parseError) {
       setSelectedFileName('');
+      setDetectedFormat(null);
       setError(getErrorMessage(parseError));
     } finally {
       setIsParsing(false);
@@ -92,7 +96,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
     }
 
     if (previewRows.length === 0) {
-      setError('Carga un CSV reconocido antes de guardar.');
+      setError('Carga un archivo BBVA reconocido antes de guardar.');
       return;
     }
 
@@ -111,6 +115,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
       );
       setPreviewRows([]);
       setSelectedFileName('');
+      setDetectedFormat(null);
     } catch (saveError) {
       setError(getErrorMessage(saveError));
     } finally {
@@ -126,7 +131,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
 
       <div className="section-heading">
         <p className="eyebrow">Importar</p>
-        <h2>CSV bancario</h2>
+        <h2>Movimientos BBVA</h2>
         <span>Formato oficial BBVA</span>
       </div>
 
@@ -138,7 +143,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
       {!isLoading && context?.accounts.length === 0 ? (
         <div className="empty-state-card">
           <span>Primero crea una cuenta para importar movimientos.</span>
-          <p>Crea una cuenta antes de importar movimientos por CSV.</p>
+          <p>Crea una cuenta antes de importar movimientos.</p>
         </div>
       ) : null}
 
@@ -151,6 +156,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
                 setSelectedAccountId(event.target.value);
                 setPreviewRows([]);
                 setSelectedFileName('');
+                setDetectedFormat(null);
                 setSuccess(null);
                 setError(null);
               }}
@@ -165,9 +171,10 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
           </label>
 
           <label className="file-drop">
-            <span>{selectedFileName || 'Seleccionar CSV'}</span>
+            <span>{selectedFileName || 'Seleccionar archivo BBVA'}</span>
             <small>
-              BBVA CSV o Excel: Valor, Fecha, Concepto, Movimiento, Importe y Divisa
+              BBVA CSV o Excel: Valor, Fecha, Concepto, Movimiento, Importe, Divisa y
+              Disponible
             </small>
             <input
               accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -181,12 +188,16 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
         </div>
       ) : null}
 
-      {isParsing ? <p className="panel-status">Leyendo CSV...</p> : null}
+      {isParsing ? <p className="panel-status">Leyendo archivo BBVA...</p> : null}
 
       {previewRows.length > 0 ? (
         <>
           <div className="csv-preview-summary">
-            <span>{previewRows.length} movimientos detectados</span>
+            <span>
+              {detectedFormat
+                ? `Formato detectado: ${detectedFormat}`
+                : `${previewRows.length} movimientos detectados`}
+            </span>
             <strong>
               {formatMoney(
                 getPreviewTotal(previewRows),
@@ -195,7 +206,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
             </strong>
           </div>
 
-          <div className="csv-preview-list" aria-label="Vista previa CSV">
+          <div className="csv-preview-list" aria-label="Vista previa BBVA">
             {previewRows.slice(0, 8).map((row) => (
               <article className="csv-preview-row" key={row.id}>
                 <div>

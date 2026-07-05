@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { CsvImportPanel } from '@/features/finance/components/CsvImportPanel';
 import { FinancialAccountsPanel } from '@/features/finance/components/FinancialAccountsPanel';
@@ -29,26 +29,32 @@ export function AuthenticatedDashboard({
     void loadDashboard();
   }, []);
 
-  const tabContent = useMemo(() => {
-    if (activeTab === 'accounts') {
-      return <FinancialAccountsPanel />;
-    }
+  function handleSelectTab(tab: DashboardTab) {
+    setActiveTab(tab);
 
-    if (activeTab === 'import') {
-      return <CsvImportPanel onBack={() => setActiveTab('home')} />;
+    if (tab === 'home') {
+      void loadDashboard();
     }
+  }
 
-    return (
-      <HomePanel
-        error={error}
-        isLoading={isLoading}
-        summary={summary}
-        onCreateAccount={() => setActiveTab('accounts')}
-        onImportMovements={() => setActiveTab('import')}
-        onRetry={() => void loadDashboard()}
-      />
-    );
-  }, [activeTab, error, isLoading, summary]);
+  let tabContent = (
+    <HomePanel
+      error={error}
+      isLoading={isLoading}
+      summary={summary}
+      onCreateAccount={() => handleSelectTab('accounts')}
+      onImportMovements={() => handleSelectTab('import')}
+      onRetry={() => void loadDashboard()}
+    />
+  );
+
+  if (activeTab === 'accounts') {
+    tabContent = <FinancialAccountsPanel />;
+  }
+
+  if (activeTab === 'import') {
+    tabContent = <CsvImportPanel onBack={() => handleSelectTab('home')} />;
+  }
 
   async function loadDashboard() {
     setIsLoading(true);
@@ -85,19 +91,19 @@ export function AuthenticatedDashboard({
           activeTab={activeTab}
           label="Inicio"
           tab="home"
-          onSelect={setActiveTab}
+          onSelect={handleSelectTab}
         />
         <TabButton
           activeTab={activeTab}
           label="Cuentas"
           tab="accounts"
-          onSelect={setActiveTab}
+          onSelect={handleSelectTab}
         />
         <TabButton
           activeTab={activeTab}
           label="Importar"
           tab="import"
-          onSelect={setActiveTab}
+          onSelect={handleSelectTab}
         />
       </nav>
     </ExperienceFrame>
@@ -187,6 +193,10 @@ function HomePanel({
 
       <section className="metric-grid" aria-label="Resumen mensual real">
         <MetricCard
+          label="Patrimonio"
+          value={formatMoney(summary.netWorth, summary.currency)}
+        />
+        <MetricCard
           label="Ingresos"
           value={formatMoney(summary.monthIncome, summary.currency)}
         />
@@ -204,9 +214,14 @@ function HomePanel({
         <section className="empty-state-card">
           <span>Importa tu primera cuenta</span>
           <p>Crea una cuenta financiera para empezar a construir tu dashboard real.</p>
-          <button className="text-link" onClick={onCreateAccount} type="button">
-            Crear cuenta
-          </button>
+          <div className="empty-state-actions">
+            <button className="text-link" onClick={onCreateAccount} type="button">
+              Crear cuenta
+            </button>
+            <button className="text-link" onClick={onImportMovements} type="button">
+              Importar movimientos
+            </button>
+          </div>
         </section>
       ) : (
         <section className="account-list" aria-label="Saldos por cuenta">
@@ -225,13 +240,15 @@ function HomePanel({
         </section>
       )}
 
-      {hasAccounts ? (
-        <button className="import-entry-card" onClick={onImportMovements} type="button">
-          <span>Importar movimientos</span>
-          <strong>Excel o CSV bancario</strong>
-          <small>Sube tus movimientos reales para alimentar el dashboard.</small>
-        </button>
-      ) : null}
+      <button className="import-entry-card" onClick={onImportMovements} type="button">
+        <span>Importar movimientos</span>
+        <strong>Excel o CSV bancario</strong>
+        <small>
+          {hasAccounts
+            ? 'Sube tus movimientos reales para alimentar el dashboard.'
+            : 'Primero crea una cuenta para poder importar movimientos.'}
+        </small>
+      </button>
 
       <section className="assets-panel" aria-label="Ultimos movimientos">
         <div className="section-heading">

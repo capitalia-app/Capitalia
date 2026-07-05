@@ -4,8 +4,13 @@ Estas reglas aplican a cualquier agente que trabaje en Capitalia.
 
 ## Git
 
+- `main` es la unica rama de integracion.
 - Nunca trabajar directamente en `main`.
-- Crear una rama por tarea.
+- Crear una rama nueva por tarea siempre desde `main`.
+- Abrir pull requests siempre contra `main`.
+- No usar `chore/project-foundation` como base de ramas ni como base de pull requests.
+- Las ramas `feat/*`, `fix/*`, `docs/*` y `refactor/*` deben salir de `main` y volver a
+  `main`.
 - Mantener commits pequenos, claros y revisables.
 - Usar mensajes de commit descriptivos, por ejemplo:
   - `feat: add onboarding flow`

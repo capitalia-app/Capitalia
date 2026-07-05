@@ -26,23 +26,17 @@ const onboardingPanels = [
   {
     eyebrow: '01',
     title: 'Patrimonio primero.',
-    copy: 'Cuentas, activos y objetivos en una sola lectura.',
-    metric: '124.580 EUR',
-    label: 'Patrimonio simulado'
+    copy: 'Cuentas, activos y objetivos reales en una sola lectura.'
   },
   {
     eyebrow: '02',
     title: 'Menos friccion.',
-    copy: 'Importa ahora. Revisa solo lo importante.',
-    metric: '7',
-    label: 'Elementos por revisar'
+    copy: 'Importa tus datos. Revisa solo lo importante.'
   },
   {
     eyebrow: '03',
     title: 'Decision tranquila.',
-    copy: 'Una vision clara antes de mover tu dinero.',
-    metric: '68%',
-    label: 'Objetivo de inversion'
+    copy: 'Una vision clara antes de mover tu dinero.'
   }
 ] as const;
 

@@ -30,16 +30,10 @@ export function WelcomeScreen({
         </p>
       </section>
 
-      <section className="wealth-card" aria-label="Vista previa de patrimonio">
+      <section className="wealth-card" aria-label="Datos financieros reales">
         <div>
-          <span>Patrimonio neto</span>
-          <strong>124.580 EUR</strong>
-        </div>
-        <div className="wealth-chart" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
+          <span>Datos reales</span>
+          <strong>Conecta tus cuentas</strong>
         </div>
       </section>
 

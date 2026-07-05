@@ -263,20 +263,33 @@ h1 {
 }
 
 .dashboard-screen .experience-canvas {
-  grid-template-rows: auto auto auto 1fr auto;
+  grid-template-rows: auto auto auto 1fr;
   gap: 14px;
 }
 
-.dashboard-header {
-  display: flex;
+.app-header {
+  position: sticky;
+  top: max(14px, env(safe-area-inset-top));
+  z-index: 20;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   min-height: 44px;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(7, 12, 16, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgba(244, 239, 228, 0.07),
+    0 16px 36px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(24px);
   animation: rise-in 560ms ease both;
 }
 
 .dashboard-session {
   display: flex;
+  justify-self: end;
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -290,6 +303,127 @@ h1 {
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.hamburger-button {
+  display: inline-grid;
+  gap: 4px;
+  justify-self: end;
+  width: 38px;
+  height: 38px;
+  place-content: center;
+  border: 1px solid rgba(244, 239, 228, 0.12);
+  border-radius: 8px;
+  background: rgba(244, 239, 228, 0.08);
+}
+
+.hamburger-button span {
+  display: block;
+  width: 16px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--paper);
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  border: 0;
+  background: rgba(2, 6, 8, 0);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 180ms ease,
+    background 180ms ease;
+}
+
+.drawer-backdrop--open {
+  background: rgba(2, 6, 8, 0.56);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.app-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 18px;
+  width: min(86vw, 360px);
+  height: 100dvh;
+  padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+  border-left: 1px solid rgba(244, 239, 228, 0.12);
+  background:
+    linear-gradient(180deg, rgba(196, 161, 90, 0.12), transparent 34%),
+    rgba(7, 12, 16, 0.96);
+  box-shadow: -28px 0 70px rgba(0, 0, 0, 0.34);
+  transform: translateX(100%);
+  transition: transform 220ms ease;
+}
+
+.app-drawer--open {
+  transform: translateX(0);
+}
+
+.drawer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.drawer-nav {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.drawer-nav__item {
+  display: grid;
+  gap: 3px;
+  min-height: 58px;
+  border: 1px solid rgba(244, 239, 228, 0.08);
+  border-radius: 8px;
+  padding: 11px 12px;
+  color: inherit;
+  background: rgba(244, 239, 228, 0.05);
+  text-align: left;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    transform 180ms ease;
+}
+
+.drawer-nav__item--active {
+  border-color: rgba(196, 161, 90, 0.38);
+  background: rgba(196, 161, 90, 0.16);
+}
+
+.drawer-nav__item span {
+  color: var(--paper);
+  font-size: 0.98rem;
+  font-weight: 820;
+}
+
+.drawer-nav__item small,
+.drawer-footer span {
+  overflow: hidden;
+  color: rgba(244, 239, 228, 0.56);
+  font-size: 0.76rem;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-footer {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid rgba(244, 239, 228, 0.1);
+  padding-top: 14px;
 }
 
 .dashboard-hero {
@@ -342,7 +476,7 @@ h1 {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -413,48 +547,6 @@ h1 {
   color: rgba(244, 239, 228, 0.58);
   font-size: 0.84rem;
   line-height: 1.45;
-}
-
-.mobile-tab-bar {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 46px;
-  border: 1px solid rgba(244, 239, 228, 0.12);
-  border-radius: 999px;
-  padding: 5px;
-  background: rgba(7, 12, 16, 0.68);
-  box-shadow:
-    inset 0 1px 0 rgba(244, 239, 228, 0.08),
-    0 16px 36px rgba(0, 0, 0, 0.22);
-  backdrop-filter: blur(22px);
-  animation: rise-in 780ms ease both 280ms;
-}
-
-.mobile-tab-bar__item {
-  position: relative;
-  z-index: 1;
-  flex: 1;
-  min-height: 32px;
-  border: 0;
-  border-radius: 999px;
-  color: rgba(244, 239, 228, 0.56);
-  background: transparent;
-  font-size: 0.74rem;
-  font-weight: 750;
-  transition:
-    color 180ms ease,
-    background 180ms ease,
-    transform 180ms ease;
-}
-
-.mobile-tab-bar__item--active {
-  color: var(--ink);
-  background: linear-gradient(180deg, #d2b36b, var(--gold));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 6px 14px rgba(196, 161, 90, 0.16);
 }
 
 .assets-panel {
@@ -590,6 +682,13 @@ h1 {
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
+}
+
+.empty-section {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  animation: rise-in 640ms ease both 80ms;
 }
 
 .account-list {
@@ -1209,7 +1308,7 @@ h1 {
     gap: 24px;
   }
 
-  .dashboard-header,
+  .app-header,
   .dashboard-hero {
     grid-column: 1 / -1;
   }
@@ -1249,10 +1348,9 @@ h1 {
     align-self: end;
   }
 
-  .mobile-tab-bar {
-    grid-column: 1 / -1;
-    justify-self: center;
-    width: min(100%, 360px);
+  .app-drawer {
+    right: max(0px, calc((100vw - 1040px) / 2));
+    width: min(360px, 40vw);
   }
 
   .experience-frame--light .experience-canvas {

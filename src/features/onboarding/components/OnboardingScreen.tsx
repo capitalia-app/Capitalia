@@ -6,8 +6,6 @@ type OnboardingPanel = {
   eyebrow: string;
   title: string;
   copy: string;
-  metric: string;
-  label: string;
 };
 
 type OnboardingScreenProps = {
@@ -45,9 +43,9 @@ export function OnboardingScreen({
         </button>
       </header>
 
-      <section className="signal-card" aria-label={panel.label}>
-        <span>{panel.label}</span>
-        <strong>{panel.metric}</strong>
+      <section className="signal-card" aria-label="Datos reales">
+        <span>Datos reales</span>
+        <strong>Conecta tu patrimonio</strong>
         <div className="signal-lines" aria-hidden="true">
           <i />
           <i />

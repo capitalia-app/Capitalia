@@ -254,39 +254,6 @@ h1 {
   letter-spacing: 0;
 }
 
-.wealth-chart {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  align-items: end;
-  gap: 8px;
-  height: 112px;
-}
-
-.wealth-chart span {
-  border-radius: 999px 999px 0 0;
-  background: linear-gradient(180deg, var(--gold), var(--sage));
-  animation: grow-up 900ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
-}
-
-.wealth-chart span:nth-child(1) {
-  height: 42%;
-}
-
-.wealth-chart span:nth-child(2) {
-  height: 64%;
-  animation-delay: 80ms;
-}
-
-.wealth-chart span:nth-child(3) {
-  height: 54%;
-  animation-delay: 160ms;
-}
-
-.wealth-chart span:nth-child(4) {
-  height: 88%;
-  animation-delay: 240ms;
-}
-
 .action-stack {
   display: grid;
   gap: 12px;
@@ -338,10 +305,8 @@ h1 {
 
 .dashboard-hero span,
 .metric-card span,
-.portfolio-list span,
 .section-heading span,
-.asset-row span,
-.goal-preview-card span {
+.asset-row span {
   display: block;
   color: rgba(244, 239, 228, 0.58);
   font-size: 0.75rem;
@@ -411,121 +376,6 @@ h1 {
 .metric-card small {
   color: var(--gold-soft);
   font-weight: 760;
-}
-
-.portfolio-card {
-  display: grid;
-  grid-template-columns: 0.75fr 1fr;
-  gap: 18px;
-  align-self: start;
-  border: 1px solid rgba(244, 239, 228, 0.12);
-  border-radius: 8px;
-  padding: 18px;
-  background: rgba(244, 239, 228, 0.08);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(20px);
-  animation: card-in 760ms cubic-bezier(0.2, 0.85, 0.2, 1) both 230ms;
-}
-
-.portfolio-chart {
-  position: relative;
-  display: grid;
-  place-items: center;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.24));
-}
-
-.portfolio-chart::before {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: conic-gradient(
-    from -68deg,
-    var(--gold) 0 52%,
-    var(--sage) 52% 78%,
-    var(--wine) 78% 100%
-  );
-  mask: radial-gradient(circle, transparent 0 48%, #000 49%);
-  animation: donut-draw 1100ms cubic-bezier(0.2, 0.85, 0.2, 1) both;
-  content: '';
-}
-
-.portfolio-chart::after {
-  position: absolute;
-  inset: 14%;
-  border: 1px solid rgba(244, 239, 228, 0.1);
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 35% 30%, rgba(244, 239, 228, 0.12), transparent 42%),
-    rgba(16, 24, 32, 0.84);
-  content: '';
-}
-
-.portfolio-chart__ring {
-  position: absolute;
-  inset: -7px;
-  border: 1px solid rgba(244, 239, 228, 0.08);
-  border-radius: 50%;
-}
-
-.portfolio-chart__core {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  gap: 2px;
-}
-
-.portfolio-chart__core span {
-  color: rgba(244, 239, 228, 0.5);
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.portfolio-chart__core strong {
-  color: var(--paper);
-  font-size: 1.25rem;
-  line-height: 1;
-}
-
-.portfolio-list {
-  display: grid;
-  gap: 12px;
-  align-content: center;
-}
-
-.portfolio-list__item {
-  position: relative;
-  display: grid;
-  gap: 2px;
-  padding-left: 14px;
-}
-
-.portfolio-list__item::before {
-  position: absolute;
-  top: 5px;
-  left: 0;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--gold);
-  content: '';
-}
-
-.portfolio-list__item--sage::before {
-  background: var(--sage);
-}
-
-.portfolio-list__item--wine::before {
-  background: var(--wine);
-}
-
-.portfolio-list strong {
-  color: var(--paper);
-  font-size: 1rem;
 }
 
 .import-entry-card {
@@ -974,38 +824,6 @@ h1 {
   color: var(--sage);
 }
 
-.goal-preview-card {
-  display: grid;
-  gap: 14px;
-  border: 1px solid rgba(244, 239, 228, 0.1);
-  border-radius: 8px;
-  padding: 18px;
-  background: rgba(244, 239, 228, 0.08);
-  backdrop-filter: blur(18px);
-}
-
-.goal-preview-card strong {
-  color: var(--paper);
-  font-size: 1.2rem;
-}
-
-.goal-preview-card i {
-  display: block;
-  height: 10px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(244, 239, 228, 0.12);
-}
-
-.goal-preview-card b {
-  display: block;
-  width: 68%;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--gold), var(--sage));
-  animation: draw-line 900ms ease both 180ms;
-}
-
 .action-button {
   min-height: 56px;
   border: 0;
@@ -1371,10 +1189,6 @@ h1 {
     padding: 28px;
   }
 
-  .welcome-screen .wealth-chart {
-    height: 240px;
-  }
-
   .welcome-screen .action-stack {
     grid-column: 1 / -1;
     grid-template-columns: minmax(180px, 260px) minmax(180px, 260px);
@@ -1417,11 +1231,6 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .portfolio-card {
-    align-self: stretch;
-    grid-template-columns: 0.9fr 1fr;
-  }
-
   .assets-panel {
     grid-column: 1 / -1;
     grid-template-columns: minmax(0, 0.72fr) minmax(360px, 1fr);
@@ -1429,8 +1238,7 @@ h1 {
     align-items: start;
   }
 
-  .asset-list,
-  .goal-preview-card {
+  .asset-list {
     align-self: end;
   }
 
@@ -1460,10 +1268,6 @@ h1 {
     padding-bottom: 18px;
   }
 
-  .wealth-chart {
-    height: 82px;
-  }
-
   .action-button {
     min-height: 52px;
   }
@@ -1475,10 +1279,6 @@ h1 {
   .metric-card {
     min-height: 96px;
     padding: 12px;
-  }
-
-  .portfolio-card {
-    padding: 14px;
   }
 
   .asset-row {

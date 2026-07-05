@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { CsvImportPanel } from '@/features/finance/components/CsvImportPanel';
 import { FinancialAccountsPanel } from '@/features/finance/components/FinancialAccountsPanel';
+import {
+  getDashboardSummary,
+  type DashboardSummary
+} from '@/features/finance/lib/dashboard';
 import { BrandMark } from '@/features/onboarding/components/BrandMark';
 import { ExperienceFrame } from '@/features/onboarding/components/ExperienceFrame';
 
@@ -10,110 +14,20 @@ type AuthenticatedDashboardProps = {
   userEmail?: string | null;
 };
 
-type DashboardTab = 'home' | 'accounts' | 'import' | 'assets' | 'goals';
-
-const summaryCards = [
-  {
-    label: 'Ingresos',
-    value: '4.280 EUR',
-    trend: '+8%'
-  },
-  {
-    label: 'Gastos',
-    value: '1.920 EUR',
-    trend: '-4%'
-  },
-  {
-    label: 'Ahorro',
-    value: '2.360 EUR',
-    trend: '55%'
-  }
-];
-
-const assetCards = [
-  {
-    label: 'Inversiones',
-    value: '64.200 EUR',
-    color: 'gold'
-  },
-  {
-    label: 'Liquidez',
-    value: '18.450 EUR',
-    color: 'sage'
-  },
-  {
-    label: 'Inmuebles',
-    value: '41.930 EUR',
-    color: 'wine'
-  }
-];
-
-const investmentRows = [
-  {
-    name: 'MSCI World ETF',
-    type: 'ETF',
-    value: '32.420 EUR',
-    change: '+4,8%'
-  },
-  {
-    name: 'S&P 500',
-    type: 'Acciones',
-    value: '18.760 EUR',
-    change: '+2,1%'
-  },
-  {
-    name: 'Bitcoin',
-    type: 'Cripto',
-    value: '7.840 EUR',
-    change: '+9,6%'
-  },
-  {
-    name: 'Fondo monetario',
-    type: 'Fondo',
-    value: '5.180 EUR',
-    change: '+0,4%'
-  }
-];
-
-function useAnimatedAmount(target: number) {
-  const [amount, setAmount] = useState(0);
-
-  useEffect(() => {
-    let frame = 0;
-    const totalFrames = 72;
-
-    const interval = window.setInterval(() => {
-      frame += 1;
-      const progress = Math.min(frame / totalFrames, 1);
-      const eased = 1 - (1 - progress) ** 3;
-
-      setAmount(Math.round(target * eased));
-
-      if (progress === 1) {
-        window.clearInterval(interval);
-      }
-    }, 16);
-
-    return () => window.clearInterval(interval);
-  }, [target]);
-
-  return amount;
-}
-
-function formatEuro(value: number) {
-  return new Intl.NumberFormat('es-ES', {
-    maximumFractionDigits: 0,
-    style: 'currency',
-    currency: 'EUR'
-  }).format(value);
-}
+type DashboardTab = 'home' | 'accounts' | 'import';
 
 export function AuthenticatedDashboard({
   onSignOut,
   userEmail
 }: AuthenticatedDashboardProps) {
   const [activeTab, setActiveTab] = useState<DashboardTab>('home');
-  const animatedNetWorth = useAnimatedAmount(124580);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void loadDashboard();
+  }, []);
 
   const tabContent = useMemo(() => {
     if (activeTab === 'accounts') {
@@ -124,21 +38,31 @@ export function AuthenticatedDashboard({
       return <CsvImportPanel onBack={() => setActiveTab('home')} />;
     }
 
-    if (activeTab === 'assets') {
-      return <AssetsPanel />;
-    }
-
-    if (activeTab === 'goals') {
-      return <GoalsPanel />;
-    }
-
     return (
       <HomePanel
-        animatedNetWorth={animatedNetWorth}
+        error={error}
+        isLoading={isLoading}
+        summary={summary}
+        onCreateAccount={() => setActiveTab('accounts')}
         onImportMovements={() => setActiveTab('import')}
+        onRetry={() => void loadDashboard()}
       />
     );
-  }, [activeTab, animatedNetWorth]);
+  }, [activeTab, error, isLoading, summary]);
+
+  async function loadDashboard() {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      setSummary(await getDashboardSummary());
+    } catch (dashboardError) {
+      setError(getErrorMessage(dashboardError));
+      setSummary(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   return (
     <ExperienceFrame className="dashboard-screen">
@@ -175,18 +99,6 @@ export function AuthenticatedDashboard({
           tab="import"
           onSelect={setActiveTab}
         />
-        <TabButton
-          activeTab={activeTab}
-          label="Activos"
-          tab="assets"
-          onSelect={setActiveTab}
-        />
-        <TabButton
-          activeTab={activeTab}
-          label="Objetivos"
-          tab="goals"
-          onSelect={setActiveTab}
-        />
       </nav>
     </ExperienceFrame>
   );
@@ -218,106 +130,191 @@ function TabButton({ activeTab, label, onSelect, tab }: TabButtonProps) {
 }
 
 type HomePanelProps = {
-  animatedNetWorth: number;
+  error: string | null;
+  isLoading: boolean;
+  summary: DashboardSummary | null;
+  onCreateAccount: () => void;
   onImportMovements: () => void;
+  onRetry: () => void;
 };
 
-function HomePanel({ animatedNetWorth, onImportMovements }: HomePanelProps) {
+function HomePanel({
+  error,
+  isLoading,
+  onCreateAccount,
+  onImportMovements,
+  onRetry,
+  summary
+}: HomePanelProps) {
+  if (isLoading) {
+    return <p className="panel-status">Cargando datos reales...</p>;
+  }
+
+  if (error) {
+    return (
+      <section className="empty-state-card">
+        <span>No se pudo cargar tu dashboard.</span>
+        <p>{error}</p>
+        <button className="text-link" onClick={onRetry} type="button">
+          Reintentar
+        </button>
+      </section>
+    );
+  }
+
+  if (!summary) {
+    return null;
+  }
+
+  const hasAccounts = summary.accounts.length > 0;
+  const hasTransactions = summary.recentTransactions.length > 0;
+
   return (
     <>
       <section className="dashboard-hero" aria-label="Resumen financiero">
-        <p className="eyebrow">Hoy</p>
+        <p className="eyebrow">{summary.workspace.name}</p>
         <div>
-          <span>Patrimonio neto</span>
-          <strong>{formatEuro(animatedNetWorth)}</strong>
+          <span>Patrimonio real</span>
+          <strong>{formatMoney(summary.netWorth, summary.currency)}</strong>
         </div>
-        <p>Construyes patrimonio, no controlas gastos</p>
-        <small>+2.840 EUR este mes</small>
+        <p>Datos calculados desde tus cuentas y movimientos</p>
+        <small>
+          {hasTransactions
+            ? `Balance mensual: ${formatMoney(summary.monthBalance, summary.currency)}`
+            : 'Sin movimientos importados'}
+        </small>
       </section>
 
-      <button className="import-entry-card" onClick={onImportMovements} type="button">
-        <span>Importar CSV</span>
-        <strong>Importar movimientos</strong>
-        <small>Sube un CSV bancario y revisa los movimientos antes de guardar.</small>
-      </button>
-
-      <section className="metric-grid" aria-label="Resumen mensual">
-        {summaryCards.map((card) => (
-          <article className="metric-card" key={card.label}>
-            <span>{card.label}</span>
-            <strong>{card.value}</strong>
-            <small>{card.trend}</small>
-          </article>
-        ))}
+      <section className="metric-grid" aria-label="Resumen mensual real">
+        <MetricCard
+          label="Ingresos"
+          value={formatMoney(summary.monthIncome, summary.currency)}
+        />
+        <MetricCard
+          label="Gastos"
+          value={formatMoney(summary.monthExpenses, summary.currency)}
+        />
+        <MetricCard
+          label="Balance"
+          value={formatMoney(summary.monthBalance, summary.currency)}
+        />
       </section>
 
-      <section className="portfolio-card" aria-label="Distribucion de patrimonio">
-        <div className="portfolio-chart" aria-hidden="true">
-          <div className="portfolio-chart__ring" />
-          <div className="portfolio-chart__core">
-            <span>Activos</span>
-            <strong>3</strong>
-          </div>
-        </div>
-        <div className="portfolio-list">
-          {assetCards.map((card) => (
-            <div
-              className={`portfolio-list__item portfolio-list__item--${card.color}`}
-              key={card.label}
-            >
-              <span>{card.label}</span>
-              <strong>{card.value}</strong>
-            </div>
+      {!hasAccounts ? (
+        <section className="empty-state-card">
+          <span>Importa tu primera cuenta</span>
+          <p>Crea una cuenta financiera para empezar a construir tu dashboard real.</p>
+          <button className="text-link" onClick={onCreateAccount} type="button">
+            Crear cuenta
+          </button>
+        </section>
+      ) : (
+        <section className="account-list" aria-label="Saldos por cuenta">
+          {summary.accounts.map((account) => (
+            <article className="account-row" key={account.id}>
+              <div>
+                <strong>{account.name}</strong>
+                <span>Saldo real</span>
+              </div>
+              <div>
+                <strong>{formatMoney(account.balance, account.currency)}</strong>
+                <small>{account.currency}</small>
+              </div>
+            </article>
           ))}
+        </section>
+      )}
+
+      {hasAccounts ? (
+        <button className="import-entry-card" onClick={onImportMovements} type="button">
+          <span>Importar movimientos</span>
+          <strong>Excel o CSV bancario</strong>
+          <small>Sube tus movimientos reales para alimentar el dashboard.</small>
+        </button>
+      ) : null}
+
+      <section className="assets-panel" aria-label="Ultimos movimientos">
+        <div className="section-heading">
+          <p className="eyebrow">Actividad</p>
+          <h2>Ultimos movimientos</h2>
+          <span>{hasTransactions ? 'Datos reales' : 'Sin movimientos'}</span>
         </div>
+
+        {hasTransactions ? (
+          <div className="asset-list">
+            {summary.recentTransactions.map((transaction) => (
+              <article className="asset-row" key={transaction.id}>
+                <div>
+                  <strong>{transaction.description}</strong>
+                  <span>{formatDate(transaction.occurredAt)}</span>
+                </div>
+                <div>
+                  <strong>
+                    {transaction.direction === 'inflow' ? '+' : '-'}
+                    {formatMoney(transaction.amount, transaction.currency)}
+                  </strong>
+                  <small>{getTransactionLabel(transaction.transactionType)}</small>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state-card">
+            <span>Sin movimientos</span>
+            <p>Importa un Excel/CSV bancario para ver tu actividad reciente.</p>
+          </div>
+        )}
       </section>
     </>
   );
 }
 
-function AssetsPanel() {
-  return (
-    <section className="assets-panel" aria-label="Activos conectados">
-      <div className="section-heading">
-        <p className="eyebrow">Activos</p>
-        <h2>Inversiones conectadas</h2>
-        <span>64.200 EUR</span>
-      </div>
+type MetricCardProps = {
+  label: string;
+  value: string;
+};
 
-      <div className="asset-list">
-        {investmentRows.map((asset) => (
-          <article className="asset-row" key={asset.name}>
-            <div>
-              <strong>{asset.name}</strong>
-              <span>{asset.type}</span>
-            </div>
-            <div>
-              <strong>{asset.value}</strong>
-              <small>{asset.change}</small>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
+function MetricCard({ label, value }: MetricCardProps) {
+  return (
+    <article className="metric-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </article>
   );
 }
 
-function GoalsPanel() {
-  return (
-    <section className="assets-panel" aria-label="Objetivos">
-      <div className="section-heading">
-        <p className="eyebrow">Objetivos</p>
-        <h2>Fondo de libertad</h2>
-        <span>68%</span>
-      </div>
+function formatMoney(value: number, currency: string) {
+  return new Intl.NumberFormat('es-ES', {
+    currency,
+    maximumFractionDigits: 2,
+    style: 'currency'
+  }).format(value);
+}
 
-      <div className="goal-preview-card">
-        <span>Progreso estimado</span>
-        <strong>40.800 EUR de 60.000 EUR</strong>
-        <i aria-hidden="true">
-          <b />
-        </i>
-      </div>
-    </section>
-  );
+function formatDate(date: string) {
+  return new Intl.DateTimeFormat('es-ES', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).format(new Date(date));
+}
+
+function getTransactionLabel(type: string) {
+  if (type === 'income') {
+    return 'Ingreso';
+  }
+
+  if (type === 'transfer') {
+    return 'Transferencia';
+  }
+
+  return 'Movimiento';
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'No se pudo cargar la informacion financiera.';
 }

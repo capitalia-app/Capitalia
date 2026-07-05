@@ -843,6 +843,75 @@ h1 {
   text-transform: uppercase;
 }
 
+.container-list {
+  display: grid;
+  gap: 10px;
+}
+
+.container-card {
+  overflow: hidden;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  background: rgba(244, 239, 228, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.container-card summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 76px;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.container-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.container-card summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.container-card summary strong {
+  overflow-wrap: anywhere;
+  color: var(--paper);
+  font-size: 0.98rem;
+}
+
+.container-card summary > strong {
+  color: var(--gold-soft);
+  text-align: right;
+}
+
+.container-card summary span {
+  color: rgba(244, 239, 228, 0.52);
+  font-size: 0.78rem;
+  font-weight: 720;
+}
+
+.container-card[open] summary {
+  border-bottom: 1px solid rgba(244, 239, 228, 0.08);
+}
+
+.container-card > .asset-list,
+.container-card > .empty-state-card,
+.container-actions {
+  margin: 12px;
+}
+
+.container-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid rgba(244, 239, 228, 0.08);
+  padding-top: 12px;
+}
+
 .settings-card {
   display: grid;
   gap: 14px;

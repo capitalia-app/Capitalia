@@ -1,7 +1,6 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 
 import { CsvImportPanel } from '@/features/finance/components/CsvImportPanel';
-import { FinancialAccountsPanel } from '@/features/finance/components/FinancialAccountsPanel';
 import {
   getCurrentWorkspace,
   type WorkspaceSummary
@@ -21,10 +20,15 @@ import {
 } from '@/features/finance/lib/dashboard';
 import type { MovementType } from '@/features/finance/lib/import/types';
 import {
-  createPatrimonialSnapshot,
+  createPatrimonialStartingPoint,
   resetPatrimonialStartingPoint,
   resetWorkspaceFinancialData,
-  type CreateSnapshotItemInput,
+  type AssetType,
+  type ContainerType,
+  type CreateStartingPointAssetInput,
+  type CreateStartingPointContainerInput,
+  type FinancialContainer,
+  type PatrimonyAsset,
   type SnapshotItemType
 } from '@/features/finance/lib/snapshots';
 import { ActionButton } from '@/features/onboarding/components/ActionButton';
@@ -139,7 +143,12 @@ export function AuthenticatedDashboard({
   );
 
   if (activeSection === 'accounts') {
-    sectionContent = <FinancialAccountsPanel />;
+    sectionContent = (
+      <ContainersPanel
+        summary={summary}
+        onCreateStartingPoint={() => handleSelectSection('snapshot')}
+      />
+    );
   }
 
   if (activeSection === 'import') {
@@ -460,13 +469,11 @@ function HomePanel({
         </section>
       )}
 
-      {summary.snapshot ? (
-        <SnapshotGroups
-          currency={summary.currency}
-          groups={summary.snapshot.groupedByPlatform}
-          title="Patrimonio por entidad"
-        />
-      ) : null}
+      <ContainerBreakdown
+        containers={summary.containers}
+        currency={summary.currency}
+        title="Cuentas y plataformas"
+      />
 
       <section className="metric-grid" aria-label="Resumen mensual real">
         <MetricCard
@@ -857,13 +864,59 @@ type AssetsPanelProps = {
   summary: DashboardSummary | null;
 };
 
+type ContainersPanelProps = {
+  summary: DashboardSummary | null;
+  onCreateStartingPoint: () => void;
+};
+
+function ContainersPanel({ onCreateStartingPoint, summary }: ContainersPanelProps) {
+  const containers = summary?.containers ?? [];
+
+  return (
+    <section className="accounts-panel" aria-label="Cuentas y plataformas">
+      <div className="section-heading accounts-heading">
+        <div>
+          <p className="eyebrow">Cuentas</p>
+          <h2>Cuentas y plataformas</h2>
+          <span>Contenedores reales de tu patrimonio</span>
+        </div>
+        <strong>
+          {formatMoney(sumContainerValues(containers), summary?.currency ?? 'EUR')}
+        </strong>
+      </div>
+
+      {containers.length > 0 ? (
+        <ContainerBreakdown
+          containers={containers}
+          currency={summary?.currency ?? 'EUR'}
+          showActions
+          title="Estructura patrimonial"
+        />
+      ) : (
+        <div className="empty-state-card">
+          <span>Sin cuentas ni plataformas</span>
+          <p>
+            Crea tu punto de partida para separar bancos, brokers, wallets y efectivo.
+          </p>
+          <button className="text-link" onClick={onCreateStartingPoint} type="button">
+            Configurar punto de partida
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AssetsPanel({ summary }: AssetsPanelProps) {
-  if (!summary?.snapshot) {
+  const assets = getAllContainerAssets(summary?.containers ?? []);
+  const groups = groupAssetsByType(assets);
+
+  if (assets.length === 0) {
     return (
       <EmptySection
         eyebrow="Activos"
-        title="Sin punto de partida"
-        copy="Configura tus cuentas, inversiones, activos y deudas para ver tu patrimonio agrupado."
+        title="Sin activos registrados"
+        copy="Configura tu punto de partida para ver activos agrupados por tipo."
       />
     );
   }
@@ -873,20 +926,108 @@ function AssetsPanel({ summary }: AssetsPanelProps) {
       <div className="section-heading">
         <p className="eyebrow">Activos</p>
         <h2>Mapa patrimonial</h2>
-        <span>Desde tu punto de partida</span>
+        <span>Agrupado por tipo de activo</span>
       </div>
 
-      <SnapshotGroups
-        currency={summary.currency}
-        groups={summary.snapshot.groupedByType}
-        title="Por tipo de activo"
-      />
+      <div className="category-groups">
+        {groups.map((group) => (
+          <section className="category-group" key={group.type}>
+            <h3>{getAssetTypeLabel(group.type)}</h3>
+            <div className="asset-list">
+              {group.assets.map((asset) => (
+                <article className="asset-row" key={asset.id}>
+                  <div>
+                    <strong>{asset.name}</strong>
+                    <span>{asset.provider ?? 'Sin plataforma'}</span>
+                  </div>
+                  <div>
+                    <strong>{formatMoney(asset.manualValue, asset.currency)}</strong>
+                    {asset.quantity ? <small>{asset.quantity} unidades</small> : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+}
 
-      <SnapshotGroups
-        currency={summary.currency}
-        groups={summary.snapshot.groupedByPlatform}
-        title="Por entidad o plataforma"
-      />
+function ContainerBreakdown({
+  containers,
+  currency,
+  showActions = false,
+  title
+}: {
+  containers: FinancialContainer[];
+  currency: string;
+  showActions?: boolean;
+  title: string;
+}) {
+  if (containers.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="snapshot-group-block">
+      <h3>{title}</h3>
+      <div className="container-list">
+        {containers.map((container) => (
+          <details className="container-card" key={container.id}>
+            <summary>
+              <div>
+                <strong>{container.name}</strong>
+                <span>
+                  {getContainerTypeLabel(container.containerType)} ·{' '}
+                  {container.assets.length}{' '}
+                  {container.assets.length === 1 ? 'activo' : 'activos'}
+                </span>
+              </div>
+              <strong>{formatMoney(container.totalValue, currency)}</strong>
+            </summary>
+
+            {container.assets.length > 0 ? (
+              <div className="asset-list">
+                {container.assets.map((asset) => (
+                  <article className="asset-row" key={asset.id}>
+                    <div>
+                      <strong>{asset.name}</strong>
+                      <span>{getAssetTypeLabel(asset.assetType)}</span>
+                    </div>
+                    <div>
+                      <strong>{formatMoney(asset.manualValue, asset.currency)}</strong>
+                      {asset.quantity ? <small>{asset.quantity} unidades</small> : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state-card">
+                <span>Sin activos dentro</span>
+                <p>Este contenedor existe, pero todavia no tiene activos asociados.</p>
+              </div>
+            )}
+
+            {showActions ? (
+              <div className="container-actions" aria-label="Gestion del contenedor">
+                <button className="text-link" type="button">
+                  Editar
+                </button>
+                <button className="text-link" type="button">
+                  Anadir activo
+                </button>
+                <button className="text-link" type="button">
+                  Mover activo
+                </button>
+                <button className="text-link" type="button">
+                  Eliminar
+                </button>
+              </div>
+            ) : null}
+          </details>
+        ))}
+      </div>
     </section>
   );
 }
@@ -901,43 +1042,49 @@ type SnapshotFormState = {
   mode: 'today' | 'historical';
   snapshotDate: string;
   notes: string;
-  items: SnapshotDraftItem[];
+  containers: DraftContainer[];
+  assets: DraftAsset[];
+  debts: DraftAsset[];
 };
 
-type SnapshotDraftItem = CreateSnapshotItemInput & {
-  group: 'accounts' | 'assets' | 'debts';
+type DraftContainer = CreateStartingPointContainerInput & {
+  localId: string;
+};
+
+type DraftAsset = Omit<CreateStartingPointAssetInput, 'value' | 'quantity'> & {
   localId: string;
   valueInput: string;
+  quantityInput: string;
 };
 
-const accountSnapshotItemTypes = [
-  { value: 'bank_account', label: 'Cuenta bancaria' },
+const containerTypes = [
+  { value: 'bank', label: 'Banco' },
   { value: 'broker', label: 'Broker' },
-  { value: 'cash', label: 'Efectivo' }
-] satisfies Array<{ value: SnapshotItemType; label: string }>;
+  { value: 'wallet', label: 'Wallet' },
+  { value: 'exchange', label: 'Exchange' },
+  { value: 'cash', label: 'Efectivo' },
+  { value: 'other', label: 'Otro' }
+] satisfies Array<{ value: ContainerType; label: string }>;
 
-const assetSnapshotItemTypes = [
+const assetTypes = [
+  { value: 'cash', label: 'Efectivo' },
   { value: 'fund', label: 'Fondo' },
   { value: 'etf', label: 'ETF' },
   { value: 'stock', label: 'Accion' },
   { value: 'crypto', label: 'Cripto' },
   { value: 'real_estate', label: 'Inmueble' },
   { value: 'vehicle', label: 'Vehiculo' },
-  { value: 'other_asset', label: 'Otro activo' }
-] satisfies Array<{ value: SnapshotItemType; label: string }>;
-
-const debtSnapshotItemTypes = [
-  { value: 'liability', label: 'Hipoteca' },
-  { value: 'liability', label: 'Prestamo' },
-  { value: 'liability', label: 'Tarjeta financiada' },
-  { value: 'liability', label: 'Otra deuda' }
-] satisfies Array<{ value: SnapshotItemType; label: string }>;
+  { value: 'gold', label: 'Oro' },
+  { value: 'other', label: 'Otro activo' }
+] satisfies Array<{ value: AssetType; label: string }>;
 
 function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
   const today = new Date().toISOString().slice(0, 10);
   const [stepIndex, setStepIndex] = useState(0);
   const [formState, setFormState] = useState<SnapshotFormState>({
-    items: [createDraftSnapshotItem(summary?.currency ?? 'EUR', 'accounts')],
+    assets: [createDraftAsset(summary?.currency ?? 'EUR')],
+    containers: [createDraftContainer(summary?.currency ?? 'EUR')],
+    debts: [],
     mode: 'today',
     notes: '',
     snapshotDate: today
@@ -945,10 +1092,7 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const currency = summary?.currency ?? 'EUR';
-  const accounts = formState.items.filter((item) => item.group === 'accounts');
-  const assets = formState.items.filter((item) => item.group === 'assets');
-  const debts = formState.items.filter((item) => item.group === 'debts');
-  const totals = getSnapshotDraftTotals(formState.items);
+  const totals = getStartingPointTotals(formState.assets, formState.debts);
 
   if (summary?.snapshot) {
     return (
@@ -1023,30 +1167,55 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
       return;
     }
 
-    const items = formState.items
+    const containers = formState.containers
       .map((item) => ({
+        containerType: item.containerType,
+        currency: item.currency.trim().toUpperCase(),
+        institution: item.institution?.trim() || item.name.trim(),
+        localId: item.localId,
+        name: item.name.trim()
+      }))
+      .filter((item) => item.name);
+    const assets = formState.assets
+      .map((item) => ({
+        assetType: item.assetType,
+        containerLocalId: item.containerLocalId || null,
         currency: item.currency.trim().toUpperCase(),
         name: item.name.trim(),
         notes: item.notes?.trim() || null,
-        platform: item.platform?.trim() || null,
-        type: item.type,
-        value:
-          item.group === 'debts'
-            ? -Math.abs(Number(item.valueInput))
-            : Math.abs(Number(item.valueInput))
+        quantity: item.quantityInput ? Number(item.quantityInput) : null,
+        value: Math.abs(Number(item.valueInput))
+      }))
+      .filter((item) => item.name && Number.isFinite(item.value));
+    const debts = formState.debts
+      .map((item) => ({
+        assetType: 'liability' as const,
+        containerLocalId: null,
+        currency: item.currency.trim().toUpperCase(),
+        name: item.name.trim(),
+        notes: item.notes?.trim() || null,
+        quantity: null,
+        value: Math.abs(Number(item.valueInput))
       }))
       .filter((item) => item.name && Number.isFinite(item.value));
 
-    if (items.length === 0) {
-      setError('Anade al menos una linea de patrimonio inicial.');
+    if (containers.length === 0) {
+      setError('Anade al menos una cuenta o plataforma.');
+      return;
+    }
+
+    if (assets.length === 0 && debts.length === 0) {
+      setError('Anade al menos un activo o una deuda.');
       return;
     }
 
     setIsSaving(true);
 
     try {
-      await createPatrimonialSnapshot({
-        items,
+      await createPatrimonialStartingPoint({
+        assets,
+        containers,
+        debts,
         name: 'Punto de partida',
         notes: formState.notes.trim() || null,
         snapshotDate: formState.snapshotDate,
@@ -1159,47 +1328,27 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
         ) : null}
 
         {stepIndex === 1 ? (
-          <SnapshotItemStep
-            addLabel="Anadir cuenta"
+          <ContainerStep
             currency={currency}
-            items={accounts}
-            placeholders={['BBVA', 'Revolut', 'MyInvestor', 'Efectivo casa']}
+            items={formState.containers}
             setFormState={setFormState}
-            title="Anade tus cuentas"
-            typeOptions={accountSnapshotItemTypes}
-            group="accounts"
           />
         ) : null}
 
         {stepIndex === 2 ? (
-          <SnapshotItemStep
-            addLabel="Anadir activo"
+          <AssetStep
+            containers={formState.containers}
             currency={currency}
-            items={assets}
-            placeholders={[
-              'Fidelity MSCI World',
-              'Bitcoin',
-              'Apartamento Fuengirola',
-              'Renault Megane'
-            ]}
+            items={formState.assets}
             setFormState={setFormState}
-            title="Anade tus inversiones y activos"
-            typeOptions={assetSnapshotItemTypes}
-            group="assets"
           />
         ) : null}
 
         {stepIndex === 3 ? (
-          <SnapshotItemStep
-            addLabel="Anadir deuda"
+          <DebtStep
             currency={currency}
-            emptyCopy="Puedes saltarte este paso si no tienes deudas."
-            items={debts}
-            placeholders={['Hipoteca', 'Prestamo coche', 'Tarjeta financiada']}
+            items={formState.debts}
             setFormState={setFormState}
-            title="Anade tus deudas"
-            typeOptions={debtSnapshotItemTypes}
-            group="debts"
           />
         ) : null}
 
@@ -1211,12 +1360,12 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
             </div>
             <div className="snapshot-summary-grid">
               <MetricCard
-                label="Activos liquidos"
-                value={formatMoney(totals.liquidAssets, currency)}
+                label="Cuentas"
+                value={String(formState.containers.filter((item) => item.name).length)}
               />
               <MetricCard
-                label="Inversiones y activos"
-                value={formatMoney(totals.investmentAssets, currency)}
+                label="Activos"
+                value={formatMoney(totals.grossWorth, currency)}
               />
               <MetricCard
                 label="Deudas"
@@ -1232,7 +1381,7 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
               onClick={() => void handleSave()}
               type="button"
             >
-              {isSaving ? 'Guardando...' : 'Guardar punto de partida'}
+              {isSaving ? 'Guardando...' : 'Comenzar'}
             </ActionButton>
           </div>
         ) : null}
@@ -1263,15 +1412,7 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
 }
 
 type SnapshotItemStepProps = {
-  addLabel: string;
-  currency: string;
-  emptyCopy?: string;
-  group: SnapshotDraftItem['group'];
-  items: SnapshotDraftItem[];
-  placeholders: string[];
   setFormState: Dispatch<SetStateAction<SnapshotFormState>>;
-  title: string;
-  typeOptions: Array<{ value: SnapshotItemType; label: string }>;
 };
 
 function SnapshotGroups({
@@ -1309,63 +1450,62 @@ function SnapshotGroups({
   );
 }
 
-function SnapshotItemStep({
-  addLabel,
+function ContainerStep({
   currency,
-  emptyCopy,
-  group,
   items,
-  placeholders,
-  setFormState,
-  title,
-  typeOptions
-}: SnapshotItemStepProps) {
+  setFormState
+}: SnapshotItemStepProps & {
+  currency: string;
+  items: DraftContainer[];
+}) {
   return (
     <div className="snapshot-step">
       <div>
-        <strong>{title}</strong>
-        {emptyCopy ? <p>{emptyCopy}</p> : null}
+        <strong>Donde guardas tu patrimonio?</strong>
+        <p>
+          Anade bancos, brokers, wallets, exchanges o efectivo. No pongas importes aqui.
+        </p>
       </div>
 
       {items.map((item, index) => (
         <div className="snapshot-item-row" key={item.localId}>
           <label>
+            <span>Nombre</span>
+            <input
+              onChange={(event) =>
+                updateDraftContainer(setFormState, item.localId, {
+                  name: event.target.value
+                })
+              }
+              placeholder={['BBVA', 'MyInvestor', 'Ledger', 'Efectivo'][index % 4]}
+              type="text"
+              value={item.name}
+            />
+          </label>
+          <label>
             <span>Entidad / plataforma</span>
             <input
               onChange={(event) =>
-                updateDraftItem(setFormState, item.localId, {
-                  platform: event.target.value
+                updateDraftContainer(setFormState, item.localId, {
+                  institution: event.target.value
                 })
               }
               placeholder="MyInvestor"
               type="text"
-              value={item.platform ?? ''}
-            />
-          </label>
-          <label>
-            <span>Nombre</span>
-            <input
-              onChange={(event) =>
-                updateDraftItem(setFormState, item.localId, {
-                  name: event.target.value
-                })
-              }
-              placeholder={placeholders[index % placeholders.length]}
-              type="text"
-              value={item.name}
+              value={item.institution ?? ''}
             />
           </label>
           <label>
             <span>Tipo</span>
             <select
               onChange={(event) =>
-                updateDraftItem(setFormState, item.localId, {
-                  type: event.target.value as SnapshotItemType
+                updateDraftContainer(setFormState, item.localId, {
+                  containerType: event.target.value as ContainerType
                 })
               }
-              value={item.type}
+              value={item.containerType}
             >
-              {typeOptions.map((type) => (
+              {containerTypes.map((type) => (
                 <option key={`${type.value}-${type.label}`} value={type.value}>
                   {type.label}
                 </option>
@@ -1374,27 +1514,11 @@ function SnapshotItemStep({
           </label>
           <div className="account-form__grid">
             <label>
-              <span>{group === 'debts' ? 'Importe pendiente' : 'Valor inicial'}</span>
-              <input
-                inputMode="decimal"
-                onChange={(event) =>
-                  updateDraftItem(setFormState, item.localId, {
-                    valueInput: event.target.value
-                  })
-                }
-                placeholder="0"
-                min="0"
-                step="0.01"
-                type="number"
-                value={item.valueInput}
-              />
-            </label>
-            <label>
               <span>Moneda</span>
               <input
                 maxLength={3}
                 onChange={(event) =>
-                  updateDraftItem(setFormState, item.localId, {
+                  updateDraftContainer(setFormState, item.localId, {
                     currency: event.target.value.toUpperCase()
                   })
                 }
@@ -1403,18 +1527,6 @@ function SnapshotItemStep({
               />
             </label>
           </div>
-          <label>
-            <span>Notas opcionales</span>
-            <input
-              onChange={(event) =>
-                updateDraftItem(setFormState, item.localId, {
-                  notes: event.target.value
-                })
-              }
-              type="text"
-              value={item.notes ?? ''}
-            />
-          </label>
         </div>
       ))}
 
@@ -1423,13 +1535,242 @@ function SnapshotItemStep({
         onClick={() =>
           setFormState((current) => ({
             ...current,
-            items: [...current.items, createDraftSnapshotItem(currency, group)]
+            containers: [...current.containers, createDraftContainer(currency)]
           }))
         }
         type="button"
       >
-        {addLabel}
+        Anadir cuenta o plataforma
       </button>
+    </div>
+  );
+}
+
+function AssetStep({
+  containers,
+  currency,
+  items,
+  setFormState
+}: SnapshotItemStepProps & {
+  containers: DraftContainer[];
+  currency: string;
+  items: DraftAsset[];
+}) {
+  return (
+    <div className="snapshot-step">
+      <div>
+        <strong>Que activos tienes?</strong>
+        <p>Asigna cada activo a su cuenta o plataforma para no perder detalle.</p>
+      </div>
+
+      {items.map((item, index) => (
+        <AssetDraftRow
+          containers={containers}
+          item={item}
+          key={item.localId}
+          placeholder={
+            ['Efectivo', 'Fidelity MSCI World', 'ETF MSCI World', 'Bitcoin'][index % 4] ??
+            'Activo'
+          }
+          setFormState={setFormState}
+        />
+      ))}
+
+      <button
+        className="text-link"
+        onClick={() =>
+          setFormState((current) => ({
+            ...current,
+            assets: [...current.assets, createDraftAsset(currency)]
+          }))
+        }
+        type="button"
+      >
+        Anadir activo
+      </button>
+    </div>
+  );
+}
+
+function DebtStep({
+  currency,
+  items,
+  setFormState
+}: SnapshotItemStepProps & {
+  currency: string;
+  items: DraftAsset[];
+}) {
+  return (
+    <div className="snapshot-step">
+      <div>
+        <strong>Tienes deudas?</strong>
+        <p>
+          Introduce importes positivos. Capitalia los guardara internamente como deuda.
+        </p>
+      </div>
+
+      {items.map((item, index) => (
+        <AssetDraftRow
+          item={item}
+          key={item.localId}
+          placeholder={
+            ['Hipoteca', 'Prestamo coche', 'Tarjeta financiada'][index % 3] ?? 'Deuda'
+          }
+          setFormState={setFormState}
+          variant="debt"
+        />
+      ))}
+
+      <button
+        className="text-link"
+        onClick={() =>
+          setFormState((current) => ({
+            ...current,
+            debts: [...current.debts, createDraftDebt(currency)]
+          }))
+        }
+        type="button"
+      >
+        Anadir deuda
+      </button>
+    </div>
+  );
+}
+
+function AssetDraftRow({
+  containers = [],
+  item,
+  placeholder,
+  setFormState,
+  variant = 'asset'
+}: {
+  containers?: DraftContainer[];
+  item: DraftAsset;
+  placeholder: string;
+  setFormState: Dispatch<SetStateAction<SnapshotFormState>>;
+  variant?: 'asset' | 'debt';
+}) {
+  return (
+    <div className="snapshot-item-row">
+      <label>
+        <span>Nombre</span>
+        <input
+          onChange={(event) =>
+            updateDraftAsset(setFormState, item.localId, variant, {
+              name: event.target.value
+            })
+          }
+          placeholder={placeholder}
+          type="text"
+          value={item.name}
+        />
+      </label>
+
+      {variant === 'asset' ? (
+        <>
+          <label>
+            <span>Cuenta / plataforma</span>
+            <select
+              onChange={(event) =>
+                updateDraftAsset(setFormState, item.localId, variant, {
+                  containerLocalId: event.target.value || null
+                })
+              }
+              value={item.containerLocalId ?? ''}
+            >
+              <option value="">Sin asignar</option>
+              {containers
+                .filter((container) => container.name)
+                .map((container) => (
+                  <option key={container.localId} value={container.localId}>
+                    {container.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label>
+            <span>Tipo</span>
+            <select
+              onChange={(event) =>
+                updateDraftAsset(setFormState, item.localId, variant, {
+                  assetType: event.target.value as AssetType
+                })
+              }
+              value={item.assetType}
+            >
+              {assetTypes.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      ) : null}
+
+      <div className="account-form__grid">
+        <label>
+          <span>{variant === 'debt' ? 'Importe pendiente' : 'Valor inicial'}</span>
+          <input
+            inputMode="decimal"
+            min="0"
+            onChange={(event) =>
+              updateDraftAsset(setFormState, item.localId, variant, {
+                valueInput: event.target.value
+              })
+            }
+            placeholder="0"
+            step="0.01"
+            type="number"
+            value={item.valueInput}
+          />
+        </label>
+        <label>
+          <span>Moneda</span>
+          <input
+            maxLength={3}
+            onChange={(event) =>
+              updateDraftAsset(setFormState, item.localId, variant, {
+                currency: event.target.value.toUpperCase()
+              })
+            }
+            type="text"
+            value={item.currency}
+          />
+        </label>
+      </div>
+
+      {variant === 'asset' ? (
+        <label>
+          <span>Cantidad opcional</span>
+          <input
+            inputMode="decimal"
+            min="0"
+            onChange={(event) =>
+              updateDraftAsset(setFormState, item.localId, variant, {
+                quantityInput: event.target.value
+              })
+            }
+            placeholder="0"
+            step="0.000001"
+            type="number"
+            value={item.quantityInput}
+          />
+        </label>
+      ) : null}
+
+      <label>
+        <span>Notas opcionales</span>
+        <input
+          onChange={(event) =>
+            updateDraftAsset(setFormState, item.localId, variant, {
+              notes: event.target.value
+            })
+          }
+          type="text"
+          value={item.notes ?? ''}
+        />
+      </label>
     </div>
   );
 }
@@ -1642,10 +1983,11 @@ function SettingsPanel({
             <div className="section-heading">
               <p className="eyebrow">Punto de partida</p>
               <h2>Rehacer configuracion</h2>
-              <span>No borra movimientos, cuentas ni categorias.</span>
+              <span>No borra movimientos ni categorias.</span>
             </div>
             <p>
-              Se borraran solo los elementos del punto de partida patrimonial. Para
+              Se borraran solo los registros del snapshot inicial. Las cuentas y activos
+              creados seguiran disponibles hasta el reset financiero completo. Para
               confirmar, escribe exactamente REHACER PUNTO.
             </p>
             <input
@@ -1688,66 +2030,88 @@ const movementGroups = [
 
 const wizardSteps = ['Fecha', 'Cuentas', 'Activos', 'Deudas', 'Resumen'] as const;
 
-function createDraftSnapshotItem(currency: string, group: SnapshotDraftItem['group']) {
+function createDraftContainer(currency: string) {
   return {
+    containerType: 'bank',
     currency,
-    group,
+    institution: '',
+    localId: crypto.randomUUID(),
+    name: ''
+  } satisfies DraftContainer;
+}
+
+function createDraftAsset(currency: string) {
+  return {
+    assetType: 'fund',
+    containerLocalId: null,
+    currency,
     localId: crypto.randomUUID(),
     name: '',
     notes: '',
-    platform: group === 'debts' ? 'Manual' : '',
-    type: getDefaultSnapshotType(group),
-    value: 0,
+    quantityInput: '',
     valueInput: ''
-  } satisfies SnapshotDraftItem;
+  } satisfies DraftAsset;
 }
 
-function updateDraftItem(
+function createDraftDebt(currency: string) {
+  return {
+    assetType: 'liability',
+    containerLocalId: null,
+    currency,
+    localId: crypto.randomUUID(),
+    name: '',
+    notes: '',
+    quantityInput: '',
+    valueInput: ''
+  } satisfies DraftAsset;
+}
+
+function updateDraftContainer(
   setFormState: Dispatch<SetStateAction<SnapshotFormState>>,
   localId: string,
-  patch: Partial<SnapshotDraftItem>
+  patch: Partial<DraftContainer>
 ) {
   setFormState((current) => ({
     ...current,
-    items: current.items.map((item) =>
+    containers: current.containers.map((item) =>
       item.localId === localId ? { ...item, ...patch } : item
     )
   }));
 }
 
-function getDefaultSnapshotType(group: SnapshotDraftItem['group']) {
-  if (group === 'assets') {
-    return 'fund';
-  }
+function updateDraftAsset(
+  setFormState: Dispatch<SetStateAction<SnapshotFormState>>,
+  localId: string,
+  variant: 'asset' | 'debt',
+  patch: Partial<DraftAsset>
+) {
+  const key = variant === 'asset' ? 'assets' : 'debts';
 
-  if (group === 'debts') {
-    return 'liability';
-  }
-
-  return 'bank_account';
+  setFormState((current) => ({
+    ...current,
+    [key]: current[key].map((item) =>
+      item.localId === localId ? { ...item, ...patch } : item
+    )
+  }));
 }
 
-function getSnapshotDraftTotals(items: SnapshotDraftItem[]) {
-  const liquidAssets = sumDraftItems(items, 'accounts');
-  const investmentAssets = sumDraftItems(items, 'assets');
-  const debt = sumDraftItems(items, 'debts');
+function getStartingPointTotals(assets: DraftAsset[], debts: DraftAsset[]) {
+  const grossWorth = sumDraftAssets(assets);
+  const debt = sumDraftAssets(debts);
 
   return {
     debt,
-    investmentAssets,
-    liquidAssets,
-    netWorth: liquidAssets + investmentAssets - debt
+    grossWorth,
+    netWorth: grossWorth - debt
   };
 }
 
-function sumDraftItems(items: SnapshotDraftItem[], group: SnapshotDraftItem['group']) {
-  return items
-    .filter((item) => item.group === group)
-    .reduce((total, item) => {
-      const value = Number(item.valueInput);
+function sumDraftAssets(items: DraftAsset[]) {
+  return items.reduce((total, item) => {
+    const value = Number(item.valueInput);
 
-      return Number.isFinite(value) ? total + Math.abs(value) : total;
-    }, 0);
+    return Number.isFinite(value) ? total + Math.abs(value) : total;
+  }, 0);
 }
 
 type EmptySectionProps = {
@@ -1817,17 +2181,21 @@ function getWealthBuildCopy(rate: number | null) {
 }
 
 function getSnapshotTypeLabel(type: SnapshotItemType) {
-  if (type === 'liability') {
-    return 'Deuda';
-  }
+  const labels: Record<SnapshotItemType, string> = {
+    bank_account: 'Cuenta bancaria',
+    broker: 'Broker',
+    cash: 'Efectivo',
+    crypto: 'Cripto',
+    etf: 'ETF',
+    fund: 'Fondo',
+    liability: 'Deuda',
+    other_asset: 'Otro activo',
+    real_estate: 'Inmueble',
+    stock: 'Accion',
+    vehicle: 'Vehiculo'
+  };
 
-  const allOptions = [
-    ...accountSnapshotItemTypes,
-    ...assetSnapshotItemTypes,
-    ...debtSnapshotItemTypes
-  ];
-
-  return allOptions.find((option) => option.value === type)?.label ?? 'Elemento';
+  return labels[type] ?? 'Elemento';
 }
 
 function getSnapshotGroupLabel(label: string) {
@@ -1847,6 +2215,60 @@ function getSnapshotGroupLabel(label: string) {
   ];
 
   return knownTypes.includes(snapshotType) ? getSnapshotTypeLabel(snapshotType) : label;
+}
+
+function sumContainerValues(containers: FinancialContainer[]) {
+  return containers.reduce((total, container) => total + container.totalValue, 0);
+}
+
+function getAllContainerAssets(containers: FinancialContainer[]) {
+  return containers.flatMap((container) => container.assets);
+}
+
+function groupAssetsByType(assets: PatrimonyAsset[]) {
+  const groups = new Map<AssetType, PatrimonyAsset[]>();
+
+  assets.forEach((asset) => {
+    groups.set(asset.assetType, [...(groups.get(asset.assetType) ?? []), asset]);
+  });
+
+  return [...groups.entries()]
+    .map(([type, groupAssets]) => ({
+      assets: groupAssets,
+      total: groupAssets.reduce((total, asset) => total + asset.manualValue, 0),
+      type
+    }))
+    .sort((left, right) => Math.abs(right.total) - Math.abs(left.total));
+}
+
+function getContainerTypeLabel(type: ContainerType) {
+  const labels: Record<ContainerType, string> = {
+    bank: 'Banco',
+    broker: 'Broker',
+    cash: 'Efectivo',
+    exchange: 'Exchange',
+    other: 'Otro',
+    wallet: 'Wallet'
+  };
+
+  return labels[type];
+}
+
+function getAssetTypeLabel(type: AssetType) {
+  const labels: Record<AssetType, string> = {
+    cash: 'Efectivo',
+    crypto: 'Cripto',
+    etf: 'ETF',
+    fund: 'Fondo',
+    gold: 'Oro',
+    liability: 'Deuda',
+    other: 'Otro activo',
+    real_estate: 'Inmueble',
+    stock: 'Accion',
+    vehicle: 'Vehiculo'
+  };
+
+  return labels[type];
 }
 
 function getErrorMessage(error: unknown) {

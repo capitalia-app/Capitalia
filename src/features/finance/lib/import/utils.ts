@@ -166,7 +166,7 @@ export function parseDateCell(value: string | undefined) {
     return null;
   }
 
-  const dateMatch = cleanedValue.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  const dateMatch = cleanedValue.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
 
   if (dateMatch) {
     const day = dateMatch[1];
@@ -196,13 +196,61 @@ export function parseAmountCell(value: string | undefined) {
     return Number.NaN;
   }
 
-  const normalizedValue = value
-    .replace(/\s/g, '')
-    .replace(/\u20AC/g, '')
-    .replace(/\.(?=\d{3}(?:,|$))/g, '')
-    .replace(',', '.');
+  const compactValue = value.replace(/\s/g, '').replace(/\u00A0/g, '');
+  const isNegative =
+    compactValue.includes('(') ||
+    compactValue.startsWith('-') ||
+    compactValue.endsWith('-');
+  const numericValue = compactValue.replace(/[^\d.,+-]/g, '').replace(/[()+-]/g, '');
 
-  return Number(normalizedValue);
+  if (!numericValue) {
+    return Number.NaN;
+  }
+
+  const decimalSeparator = detectDecimalSeparator(numericValue);
+  const normalizedValue = normalizeNumericAmount(numericValue, decimalSeparator);
+  const amount = Number(normalizedValue);
+
+  if (!Number.isFinite(amount)) {
+    return Number.NaN;
+  }
+
+  return isNegative ? -Math.abs(amount) : amount;
+}
+
+function detectDecimalSeparator(value: string) {
+  const lastComma = value.lastIndexOf(',');
+  const lastDot = value.lastIndexOf('.');
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    return lastComma > lastDot ? ',' : '.';
+  }
+
+  if (lastComma !== -1) {
+    const decimals = value.length - lastComma - 1;
+
+    return decimals > 0 && decimals <= 2 ? ',' : null;
+  }
+
+  if (lastDot !== -1) {
+    const decimals = value.length - lastDot - 1;
+
+    return decimals > 0 && decimals <= 2 ? '.' : null;
+  }
+
+  return null;
+}
+
+function normalizeNumericAmount(value: string, decimalSeparator: ',' | '.' | null) {
+  if (decimalSeparator === ',') {
+    return value.replace(/\./g, '').replace(',', '.');
+  }
+
+  if (decimalSeparator === '.') {
+    return value.replace(/,/g, '');
+  }
+
+  return value.replace(/[,.]/g, '');
 }
 
 export function estimateTransactionType(

@@ -14,13 +14,71 @@ type AuthenticatedDashboardProps = {
   userEmail?: string | null;
 };
 
-type DashboardTab = 'home' | 'accounts' | 'import';
+type AppSection =
+  | 'dashboard'
+  | 'accounts'
+  | 'import'
+  | 'movements'
+  | 'categories'
+  | 'assets'
+  | 'goals'
+  | 'settings';
+
+type NavigationItem = {
+  section: AppSection;
+  label: string;
+  detail: string;
+};
+
+const navigationItems = [
+  {
+    section: 'dashboard',
+    label: 'Dashboard',
+    detail: 'Resumen real'
+  },
+  {
+    section: 'accounts',
+    label: 'Cuentas',
+    detail: 'Estructura financiera'
+  },
+  {
+    section: 'import',
+    label: 'Importar movimientos',
+    detail: 'Excel o CSV bancario'
+  },
+  {
+    section: 'movements',
+    label: 'Movimientos',
+    detail: 'Actividad real'
+  },
+  {
+    section: 'categories',
+    label: 'Categorias',
+    detail: 'Reglas proximamente'
+  },
+  {
+    section: 'assets',
+    label: 'Activos',
+    detail: 'Patrimonio avanzado'
+  },
+  {
+    section: 'goals',
+    label: 'Objetivos',
+    detail: 'Plan financiero'
+  },
+  {
+    section: 'settings',
+    label: 'Ajustes',
+    detail: 'Cuenta y seguridad'
+  }
+] satisfies NavigationItem[];
 
 export function AuthenticatedDashboard({
   onSignOut,
   userEmail
 }: AuthenticatedDashboardProps) {
-  const [activeTab, setActiveTab] = useState<DashboardTab>('home');
+  const [activeSection, setActiveSection] = useState<AppSection>('dashboard');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,31 +87,84 @@ export function AuthenticatedDashboard({
     void loadDashboard();
   }, []);
 
-  function handleSelectTab(tab: DashboardTab) {
-    setActiveTab(tab);
+  function handleSelectSection(section: AppSection) {
+    setActiveSection(section);
+    setIsMenuOpen(false);
 
-    if (tab === 'home') {
+    if (section === 'dashboard' || section === 'movements') {
       void loadDashboard();
     }
   }
 
-  let tabContent = (
+  let sectionContent = (
     <HomePanel
       error={error}
       isLoading={isLoading}
       summary={summary}
-      onCreateAccount={() => handleSelectTab('accounts')}
-      onImportMovements={() => handleSelectTab('import')}
+      onCreateAccount={() => handleSelectSection('accounts')}
+      onImportMovements={() => handleSelectSection('import')}
       onRetry={() => void loadDashboard()}
     />
   );
 
-  if (activeTab === 'accounts') {
-    tabContent = <FinancialAccountsPanel />;
+  if (activeSection === 'accounts') {
+    sectionContent = <FinancialAccountsPanel />;
   }
 
-  if (activeTab === 'import') {
-    tabContent = <CsvImportPanel onBack={() => handleSelectTab('home')} />;
+  if (activeSection === 'import') {
+    sectionContent = <CsvImportPanel onBack={() => handleSelectSection('dashboard')} />;
+  }
+
+  if (activeSection === 'movements') {
+    sectionContent = (
+      <MovementsPanel
+        error={error}
+        isLoading={isLoading}
+        summary={summary}
+        onImportMovements={() => handleSelectSection('import')}
+        onRetry={() => void loadDashboard()}
+      />
+    );
+  }
+
+  if (activeSection === 'categories') {
+    sectionContent = (
+      <EmptySection
+        eyebrow="Categorias"
+        title="Sin categorias configuradas"
+        copy="Las categorias se activaran cuando conectemos reglas reales sobre tus movimientos."
+      />
+    );
+  }
+
+  if (activeSection === 'assets') {
+    sectionContent = (
+      <EmptySection
+        eyebrow="Activos"
+        title="Sin activos avanzados"
+        copy="Las posiciones, inmuebles y otros activos llegaran en una fase posterior con datos reales."
+      />
+    );
+  }
+
+  if (activeSection === 'goals') {
+    sectionContent = (
+      <EmptySection
+        eyebrow="Objetivos"
+        title="Sin objetivos creados"
+        copy="Aqui apareceran tus objetivos financieros cuando exista el flujo real para crearlos."
+      />
+    );
+  }
+
+  if (activeSection === 'settings') {
+    sectionContent = (
+      <EmptySection
+        eyebrow="Ajustes"
+        title="Ajustes pendientes"
+        copy="La gestion de cuenta, preferencias y seguridad se incorporara cuando exista el flujo real."
+      />
+    );
   }
 
   async function loadDashboard() {
@@ -72,66 +183,107 @@ export function AuthenticatedDashboard({
 
   return (
     <ExperienceFrame className="dashboard-screen">
-      <header className="dashboard-header">
+      <header className="app-header">
         <BrandMark />
         <div className="dashboard-session">
-          {userEmail ? <span>Sesion Supabase activa: {userEmail}</span> : null}
-          {onSignOut ? (
-            <button className="text-link" onClick={onSignOut} type="button">
-              Salir
-            </button>
-          ) : null}
+          {userEmail ? <span>Sesion activa: {userEmail}</span> : null}
         </div>
+        <button
+          aria-expanded={isMenuOpen}
+          aria-label="Abrir menu"
+          className="hamburger-button"
+          onClick={() => setIsMenuOpen(true)}
+          type="button"
+        >
+          <span />
+          <span />
+          <span />
+        </button>
       </header>
 
-      {tabContent}
+      <NavigationDrawer
+        activeSection={activeSection}
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        onSelect={handleSelectSection}
+        onSignOut={onSignOut}
+        userEmail={userEmail}
+      />
 
-      <nav className="mobile-tab-bar" aria-label="Navegacion">
-        <TabButton
-          activeTab={activeTab}
-          label="Inicio"
-          tab="home"
-          onSelect={handleSelectTab}
-        />
-        <TabButton
-          activeTab={activeTab}
-          label="Cuentas"
-          tab="accounts"
-          onSelect={handleSelectTab}
-        />
-        <TabButton
-          activeTab={activeTab}
-          label="Importar"
-          tab="import"
-          onSelect={handleSelectTab}
-        />
-      </nav>
+      {sectionContent}
     </ExperienceFrame>
   );
 }
 
-type TabButtonProps = {
-  activeTab: DashboardTab;
-  label: string;
-  tab: DashboardTab;
-  onSelect: (tab: DashboardTab) => void;
+type NavigationDrawerProps = {
+  activeSection: AppSection;
+  isOpen: boolean;
+  onClose: () => void;
+  onSelect: (section: AppSection) => void;
+  onSignOut?: () => void;
+  userEmail?: string | null;
 };
 
-function TabButton({ activeTab, label, onSelect, tab }: TabButtonProps) {
-  const isActive = activeTab === tab;
-
+function NavigationDrawer({
+  activeSection,
+  isOpen,
+  onClose,
+  onSelect,
+  onSignOut,
+  userEmail
+}: NavigationDrawerProps) {
   return (
-    <button
-      className={
-        isActive
-          ? 'mobile-tab-bar__item mobile-tab-bar__item--active'
-          : 'mobile-tab-bar__item'
-      }
-      onClick={() => onSelect(tab)}
-      type="button"
-    >
-      {label}
-    </button>
+    <>
+      <button
+        aria-label="Cerrar menu"
+        className={isOpen ? 'drawer-backdrop drawer-backdrop--open' : 'drawer-backdrop'}
+        onClick={onClose}
+        type="button"
+      />
+      <aside
+        aria-hidden={!isOpen}
+        className={isOpen ? 'app-drawer app-drawer--open' : 'app-drawer'}
+      >
+        <div className="drawer-heading">
+          <BrandMark />
+          <button
+            aria-label="Cerrar menu"
+            className="icon-button"
+            onClick={onClose}
+            type="button"
+          >
+            <span aria-hidden="true">x</span>
+          </button>
+        </div>
+
+        <nav className="drawer-nav" aria-label="Secciones de Capitalia">
+          {navigationItems.map((item) => (
+            <button
+              className={
+                activeSection === item.section
+                  ? 'drawer-nav__item drawer-nav__item--active'
+                  : 'drawer-nav__item'
+              }
+              key={item.section}
+              onClick={() => onSelect(item.section)}
+              type="button"
+            >
+              <span>{item.label}</span>
+              <small>{item.detail}</small>
+            </button>
+          ))}
+        </nav>
+
+        <div className="drawer-footer">
+          {userEmail ? <span>{userEmail}</span> : null}
+          {onSignOut ? (
+            <button className="text-link" onClick={onSignOut} type="button">
+              Cerrar sesion
+            </button>
+          ) : null}
+        </div>
+      </aside>
+    </>
   );
 }
 
@@ -283,6 +435,100 @@ function HomePanel({
         )}
       </section>
     </>
+  );
+}
+
+type MovementsPanelProps = {
+  error: string | null;
+  isLoading: boolean;
+  summary: DashboardSummary | null;
+  onImportMovements: () => void;
+  onRetry: () => void;
+};
+
+function MovementsPanel({
+  error,
+  isLoading,
+  onImportMovements,
+  onRetry,
+  summary
+}: MovementsPanelProps) {
+  if (isLoading) {
+    return <p className="panel-status">Cargando movimientos...</p>;
+  }
+
+  if (error) {
+    return (
+      <section className="empty-state-card">
+        <span>No se pudieron cargar los movimientos.</span>
+        <p>{error}</p>
+        <button className="text-link" onClick={onRetry} type="button">
+          Reintentar
+        </button>
+      </section>
+    );
+  }
+
+  const transactions = summary?.recentTransactions ?? [];
+
+  return (
+    <section className="assets-panel" aria-label="Movimientos">
+      <div className="section-heading">
+        <p className="eyebrow">Movimientos</p>
+        <h2>Actividad real</h2>
+        <span>{transactions.length > 0 ? 'Ultimos 10' : 'Sin movimientos'}</span>
+      </div>
+
+      {transactions.length > 0 ? (
+        <div className="asset-list">
+          {transactions.map((transaction) => (
+            <article className="asset-row" key={transaction.id}>
+              <div>
+                <strong>{transaction.description}</strong>
+                <span>{formatDate(transaction.occurredAt)}</span>
+              </div>
+              <div>
+                <strong>
+                  {transaction.direction === 'inflow' ? '+' : '-'}
+                  {formatMoney(transaction.amount, transaction.currency)}
+                </strong>
+                <small>{getTransactionLabel(transaction.transactionType)}</small>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state-card">
+          <span>Sin movimientos</span>
+          <p>Importa movimientos reales para construir tu actividad financiera.</p>
+          <button className="text-link" onClick={onImportMovements} type="button">
+            Importar movimientos
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+type EmptySectionProps = {
+  eyebrow: string;
+  title: string;
+  copy: string;
+};
+
+function EmptySection({ copy, eyebrow, title }: EmptySectionProps) {
+  return (
+    <section className="empty-section" aria-label={eyebrow}>
+      <div className="section-heading">
+        <p className="eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
+        <span>Datos reales pendientes</span>
+      </div>
+      <div className="empty-state-card">
+        <span>{title}</span>
+        <p>{copy}</p>
+      </div>
+    </section>
   );
 }
 

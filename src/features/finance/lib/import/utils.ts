@@ -260,7 +260,12 @@ export function estimateTransactionType(
   const normalizedDescription = normalizeHeader(description);
 
   if (
-    /\b(transferencia|traspaso|bizum|sepa|envio|recibido)\b/.test(normalizedDescription)
+    /\b(transferencia|traspaso|bizum|sepa|envio|recibido|myinvestor|revolut)\b/.test(
+      normalizedDescription
+    ) ||
+    normalizedDescription.includes('ingreso efectivo') ||
+    normalizedDescription.includes('retirada efectivo') ||
+    normalizedDescription.includes('entre cuentas')
   ) {
     return 'transfer';
   }

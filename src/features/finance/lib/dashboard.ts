@@ -32,6 +32,10 @@ export type DashboardTransaction = {
   movementType: MovementType;
   transactionType: string;
   isReviewed: boolean;
+  transferGroupId: string | null;
+  linkedTransactionId: string | null;
+  linkedAccountName: string | null;
+  counterpartyContainerId: string | null;
 };
 
 export type DashboardSummary = {
@@ -82,6 +86,9 @@ type TransactionRecord = {
   movement_type: MovementType;
   transaction_type: string;
   is_reviewed: boolean;
+  transfer_group_id: string | null;
+  linked_transaction_id: string | null;
+  counterparty_container_id: string | null;
 };
 
 type BalanceTransactionRecord = {
@@ -100,6 +107,11 @@ type MonthlyTransactionRecord = {
 type CategoryRecord = {
   id: string;
   name: string;
+};
+
+type LinkedTransactionRecord = {
+  id: string;
+  account_id: string;
 };
 
 export async function getDashboardSummary() {
@@ -142,6 +154,11 @@ export async function getDashboardSummary() {
     .map((transaction) => transaction.category_id)
     .filter((categoryId): categoryId is string => Boolean(categoryId));
   const categoriesById = await getCategoriesById(categoryIds);
+  const linkedTransactionsById = await getLinkedTransactionsById(
+    recentTransactions
+      .map((transaction) => transaction.linked_transaction_id)
+      .filter((transactionId): transactionId is string => Boolean(transactionId))
+  );
   const accountsById = new Map(accounts.map((account) => [account.id, account]));
   const monthIncome = sumByMovement(monthTransactions, 'income');
   const monthExpenses = sumByMovement(monthTransactions, 'expense');
@@ -211,7 +228,16 @@ export async function getDashboardSummary() {
       isReviewed: transaction.is_reviewed,
       movementType: transaction.movement_type,
       occurredAt: transaction.occurred_at,
-      transactionType: transaction.transaction_type
+      transactionType: transaction.transaction_type,
+      transferGroupId: transaction.transfer_group_id,
+      linkedTransactionId: transaction.linked_transaction_id,
+      linkedAccountName: transaction.linked_transaction_id
+        ? (accountsById.get(
+            linkedTransactionsById.get(transaction.linked_transaction_id)?.account_id ??
+              ''
+          )?.name ?? null)
+        : null,
+      counterpartyContainerId: transaction.counterparty_container_id
     }))
   } satisfies DashboardSummary;
 }
@@ -275,7 +301,7 @@ async function getRecentTransactions(workspaceId: string) {
   const { data, error } = await supabase
     .from('transactions')
     .select(
-      'id, account_id, amount, currency, direction, occurred_at, description, category_id, movement_type, transaction_type, is_reviewed'
+      'id, account_id, amount, currency, direction, occurred_at, description, category_id, movement_type, transaction_type, is_reviewed, transfer_group_id, linked_transaction_id, counterparty_container_id'
     )
     .eq('workspace_id', workspaceId)
     .eq('status', 'posted')
@@ -288,6 +314,24 @@ async function getRecentTransactions(workspaceId: string) {
   }
 
   return data;
+}
+
+async function getLinkedTransactionsById(transactionIds: string[]) {
+  if (!supabase || transactionIds.length === 0) {
+    return new Map<string, LinkedTransactionRecord>();
+  }
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .select('id, account_id')
+    .in('id', [...new Set(transactionIds)])
+    .returns<LinkedTransactionRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  return new Map(data.map((transaction) => [transaction.id, transaction]));
 }
 
 async function getCategoriesById(categoryIds: string[]) {

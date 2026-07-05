@@ -977,7 +977,7 @@ function ContainerBreakdown({
           <details className="container-card" key={container.id}>
             <summary>
               <div>
-                <strong>{container.name}</strong>
+                <strong>{getContainerLabel(container)}</strong>
                 <span>
                   {getContainerTypeLabel(container.containerType)} ·{' '}
                   {container.assets.length}{' '}
@@ -1209,6 +1209,11 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
       return;
     }
 
+    if (assets.some((asset) => !asset.containerLocalId)) {
+      setError('Asigna cada activo a una cuenta o plataforma.');
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -1364,7 +1369,15 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
                 value={String(formState.containers.filter((item) => item.name).length)}
               />
               <MetricCard
-                label="Activos"
+                label="Activos registrados"
+                value={String(formState.assets.filter((item) => item.name).length)}
+              />
+              <MetricCard
+                label="Deudas registradas"
+                value={String(formState.debts.filter((item) => item.name).length)}
+              />
+              <MetricCard
+                label="Patrimonio bruto"
                 value={formatMoney(totals.grossWorth, currency)}
               />
               <MetricCard
@@ -1470,19 +1483,6 @@ function ContainerStep({
       {items.map((item, index) => (
         <div className="snapshot-item-row" key={item.localId}>
           <label>
-            <span>Nombre</span>
-            <input
-              onChange={(event) =>
-                updateDraftContainer(setFormState, item.localId, {
-                  name: event.target.value
-                })
-              }
-              placeholder={['BBVA', 'MyInvestor', 'Ledger', 'Efectivo'][index % 4]}
-              type="text"
-              value={item.name}
-            />
-          </label>
-          <label>
             <span>Entidad / plataforma</span>
             <input
               onChange={(event) =>
@@ -1490,9 +1490,24 @@ function ContainerStep({
                   institution: event.target.value
                 })
               }
-              placeholder="MyInvestor"
+              placeholder={['BBVA', 'MyInvestor', 'Ledger', 'Efectivo'][index % 4]}
               type="text"
               value={item.institution ?? ''}
+            />
+          </label>
+          <label>
+            <span>Nombre</span>
+            <input
+              onChange={(event) =>
+                updateDraftContainer(setFormState, item.localId, {
+                  name: event.target.value
+                })
+              }
+              placeholder={
+                ['Cuenta principal', 'MyInvestor', 'Ledger', 'Cash'][index % 4]
+              }
+              type="text"
+              value={item.name}
             />
           </label>
           <label>
@@ -1512,21 +1527,6 @@ function ContainerStep({
               ))}
             </select>
           </label>
-          <div className="account-form__grid">
-            <label>
-              <span>Moneda</span>
-              <input
-                maxLength={3}
-                onChange={(event) =>
-                  updateDraftContainer(setFormState, item.localId, {
-                    currency: event.target.value.toUpperCase()
-                  })
-                }
-                type="text"
-                value={item.currency}
-              />
-            </label>
-          </div>
         </div>
       ))}
 
@@ -1678,12 +1678,14 @@ function AssetDraftRow({
               }
               value={item.containerLocalId ?? ''}
             >
-              <option value="">Sin asignar</option>
+              <option disabled value="">
+                Selecciona una cuenta
+              </option>
               {containers
                 .filter((container) => container.name)
                 .map((container) => (
                   <option key={container.localId} value={container.localId}>
-                    {container.name}
+                    {getDraftContainerLabel(container)}
                   </option>
                 ))}
             </select>
@@ -2252,6 +2254,28 @@ function getContainerTypeLabel(type: ContainerType) {
   };
 
   return labels[type];
+}
+
+function getContainerLabel(container: FinancialContainer) {
+  if (
+    container.institution &&
+    container.institution.trim().toLowerCase() !== container.name.trim().toLowerCase()
+  ) {
+    return `${container.institution} / ${container.name}`;
+  }
+
+  return container.name;
+}
+
+function getDraftContainerLabel(container: DraftContainer) {
+  const institution = container.institution?.trim();
+  const name = container.name.trim();
+
+  if (institution && name && institution.toLowerCase() !== name.toLowerCase()) {
+    return `${institution} / ${name}`;
+  }
+
+  return name || institution || 'Cuenta sin nombre';
 }
 
 function getAssetTypeLabel(type: AssetType) {

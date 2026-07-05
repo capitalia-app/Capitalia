@@ -464,21 +464,25 @@ function mapSnapshot(snapshot: SnapshotRecord, itemRecords: SnapshotItemRecord[]
     type: item.type,
     value: Number(item.value)
   }));
-  const initialGrossWorth = items
+  const patrimonialItems = items.filter((item) => !isEmptyContainerSnapshotItem(item));
+  const initialGrossWorth = patrimonialItems
     .filter((item) => item.type !== 'liability')
     .reduce((total, item) => total + Math.max(item.value, 0), 0);
-  const initialDebt = items
+  const initialDebt = patrimonialItems
     .filter((item) => item.type === 'liability')
     .reduce((total, item) => total + Math.abs(item.value), 0);
 
   return {
     id: snapshot.id,
-    groupedByPlatform: groupSnapshotItems(items, (item) => item.platform ?? 'Manual'),
-    groupedByType: groupSnapshotItems(items, (item) => item.type),
+    groupedByPlatform: groupSnapshotItems(
+      patrimonialItems,
+      (item) => item.platform ?? 'Manual'
+    ),
+    groupedByType: groupSnapshotItems(patrimonialItems, (item) => item.type),
     initialDebt,
     initialGrossWorth,
     initialNetWorth: initialGrossWorth - initialDebt,
-    items,
+    items: patrimonialItems,
     name: snapshot.name,
     notes: snapshot.notes,
     snapshotDate: snapshot.snapshot_date,
@@ -744,6 +748,10 @@ async function findExistingNamedRecord(
 
 function isAccountSnapshotItem(type: SnapshotItemType) {
   return type === 'bank_account' || type === 'broker' || type === 'cash';
+}
+
+function isEmptyContainerSnapshotItem(item: PatrimonialSnapshotItem) {
+  return isAccountSnapshotItem(item.type) && item.value === 0 && !item.linkedAssetId;
 }
 
 function mapAssetRecord(asset: AssetRecord) {

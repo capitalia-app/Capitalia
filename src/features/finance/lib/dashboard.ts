@@ -55,39 +55,33 @@ type TransactionRecord = {
   transaction_type: string;
 };
 
+type BalanceTransactionRecord = {
+  account_id: string;
+  amount: number | string;
+  direction: 'inflow' | 'outflow';
+  occurred_at: string;
+};
+
+type MonthlyTransactionRecord = {
+  amount: number | string;
+  direction: 'inflow' | 'outflow';
+};
+
 export async function getDashboardSummary() {
   if (!supabase) {
     throw new Error('Supabase no esta configurado.');
   }
 
   const workspace = await getCurrentWorkspace();
-  const [
-    { data: accounts, error: accountsError },
-    { data: transactions, error: transactionsError }
-  ] = await Promise.all([
-    supabase
-      .from('financial_accounts')
-      .select('id, name, currency')
-      .eq('workspace_id', workspace.id)
-      .order('created_at', { ascending: false })
-      .returns<AccountRecord[]>(),
-    supabase
-      .from('transactions')
-      .select(
-        'id, account_id, amount, currency, direction, occurred_at, description, transaction_type'
-      )
-      .eq('workspace_id', workspace.id)
-      .eq('status', 'posted')
-      .order('occurred_at', { ascending: false })
-      .returns<TransactionRecord[]>()
-  ]);
+  const { data: accounts, error: accountsError } = await supabase
+    .from('financial_accounts')
+    .select('id, name, currency')
+    .eq('workspace_id', workspace.id)
+    .order('created_at', { ascending: false })
+    .returns<AccountRecord[]>();
 
   if (accountsError) {
     throw accountsError;
-  }
-
-  if (transactionsError) {
-    throw transactionsError;
   }
 
   const balances = await getLatestBalances(
@@ -96,9 +90,11 @@ export async function getDashboardSummary() {
   );
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const monthTransactions = transactions.filter(
-    (transaction) => new Date(transaction.occurred_at) >= monthStart
-  );
+  const [monthTransactions, recentTransactions, balanceTransactions] = await Promise.all([
+    getMonthlyTransactions(workspace.id, monthStart),
+    getRecentTransactions(workspace.id),
+    getBalanceTransactions(workspace.id, accounts, balances)
+  ]);
   const monthIncome = sumTransactions(monthTransactions, 'inflow');
   const monthExpenses = sumTransactions(monthTransactions, 'outflow');
   const accountBalances = accounts.map((account) => {
@@ -108,7 +104,9 @@ export async function getDashboardSummary() {
       id: account.id,
       name: account.name,
       currency: account.currency,
-      balance: balance ? getBalanceWithTransactions(balance, transactions, account.id) : 0
+      balance: balance
+        ? getBalanceWithTransactions(balance, balanceTransactions, account.id)
+        : 0
     } satisfies DashboardAccount;
   });
 
@@ -120,7 +118,7 @@ export async function getDashboardSummary() {
     monthExpenses,
     monthBalance: monthIncome - monthExpenses,
     accounts: accountBalances,
-    recentTransactions: transactions.slice(0, 6).map((transaction) => ({
+    recentTransactions: recentTransactions.map((transaction) => ({
       id: transaction.id,
       description: transaction.description,
       amount: Number(transaction.amount),
@@ -160,9 +158,86 @@ async function getLatestBalances(workspaceId: string, accountIds: string[]) {
   return balances;
 }
 
+async function getMonthlyTransactions(workspaceId: string, monthStart: Date) {
+  if (!supabase) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .select('amount, direction')
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'posted')
+    .gte('occurred_at', monthStart.toISOString())
+    .returns<MonthlyTransactionRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function getRecentTransactions(workspaceId: string) {
+  if (!supabase) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .select(
+      'id, account_id, amount, currency, direction, occurred_at, description, transaction_type'
+    )
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'posted')
+    .order('occurred_at', { ascending: false })
+    .limit(10)
+    .returns<TransactionRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function getBalanceTransactions(
+  workspaceId: string,
+  accounts: AccountRecord[],
+  balances: Map<string, BalanceRecord>
+) {
+  if (!supabase || accounts.length === 0 || balances.size === 0) {
+    return [];
+  }
+
+  const oldestBalanceDate = [...balances.values()].reduce((oldest, balance) => {
+    const capturedAt = new Date(balance.captured_at);
+
+    return capturedAt < oldest ? capturedAt : oldest;
+  }, new Date());
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .select('account_id, amount, direction, occurred_at')
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'posted')
+    .in(
+      'account_id',
+      accounts.map((account) => account.id)
+    )
+    .gt('occurred_at', oldestBalanceDate.toISOString())
+    .returns<BalanceTransactionRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
 function getBalanceWithTransactions(
   balance: BalanceRecord,
-  transactions: TransactionRecord[],
+  transactions: BalanceTransactionRecord[],
   accountId: string
 ) {
   const capturedAt = new Date(balance.captured_at);
@@ -185,8 +260,8 @@ function getBalanceWithTransactions(
 }
 
 function sumTransactions(
-  transactions: TransactionRecord[],
-  direction: TransactionRecord['direction']
+  transactions: MonthlyTransactionRecord[],
+  direction: MonthlyTransactionRecord['direction']
 ) {
   return transactions
     .filter((transaction) => transaction.direction === direction)

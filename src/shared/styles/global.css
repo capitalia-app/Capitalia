@@ -585,6 +585,13 @@ h1 {
   font-weight: 820;
 }
 
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
 .account-list {
   display: grid;
   gap: 10px;

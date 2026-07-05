@@ -2,6 +2,7 @@ import {
   getCurrentWorkspace,
   type WorkspaceSummary
 } from '@/features/finance/lib/accounts';
+import type { MovementType } from '@/features/finance/lib/import/types';
 import { supabase } from '@/shared/lib/supabase';
 
 export type DashboardAccount = {
@@ -13,12 +14,18 @@ export type DashboardAccount = {
 
 export type DashboardTransaction = {
   id: string;
+  accountId: string;
+  accountName: string;
+  categoryId: string | null;
+  categoryName: string | null;
   description: string;
   amount: number;
   currency: string;
   direction: 'inflow' | 'outflow';
   occurredAt: string;
+  movementType: MovementType;
   transactionType: string;
+  isReviewed: boolean;
 };
 
 export type DashboardSummary = {
@@ -27,7 +34,10 @@ export type DashboardSummary = {
   netWorth: number;
   monthIncome: number;
   monthExpenses: number;
+  monthInvested: number;
+  monthTransfers: number;
   monthBalance: number;
+  wealthBuildRate: number | null;
   accounts: DashboardAccount[];
   recentTransactions: DashboardTransaction[];
 };
@@ -52,7 +62,10 @@ type TransactionRecord = {
   direction: 'inflow' | 'outflow';
   occurred_at: string;
   description: string;
+  category_id: string | null;
+  movement_type: MovementType;
   transaction_type: string;
+  is_reviewed: boolean;
 };
 
 type BalanceTransactionRecord = {
@@ -65,6 +78,12 @@ type BalanceTransactionRecord = {
 type MonthlyTransactionRecord = {
   amount: number | string;
   direction: 'inflow' | 'outflow';
+  movement_type: MovementType | null;
+};
+
+type CategoryRecord = {
+  id: string;
+  name: string;
 };
 
 export async function getDashboardSummary() {
@@ -95,8 +114,16 @@ export async function getDashboardSummary() {
     getRecentTransactions(workspace.id),
     getBalanceTransactions(workspace.id, accounts, balances)
   ]);
-  const monthIncome = sumTransactions(monthTransactions, 'inflow');
-  const monthExpenses = sumTransactions(monthTransactions, 'outflow');
+  const categoryIds = recentTransactions
+    .map((transaction) => transaction.category_id)
+    .filter((categoryId): categoryId is string => Boolean(categoryId));
+  const categoriesById = await getCategoriesById(categoryIds);
+  const accountsById = new Map(accounts.map((account) => [account.id, account]));
+  const monthIncome = sumByMovement(monthTransactions, 'income');
+  const monthExpenses = sumByMovement(monthTransactions, 'expense');
+  const monthInvested = sumByMovement(monthTransactions, 'investment');
+  const monthTransfers = sumByMovement(monthTransactions, 'transfer');
+  const monthBalance = monthIncome - monthExpenses;
   const accountBalances = accounts.map((account) => {
     const balance = balances.get(account.id);
 
@@ -104,9 +131,7 @@ export async function getDashboardSummary() {
       id: account.id,
       name: account.name,
       currency: account.currency,
-      balance: balance
-        ? getBalanceWithTransactions(balance, balanceTransactions, account.id)
-        : 0
+      balance: getBalanceWithTransactions(balance, balanceTransactions, account.id)
     } satisfies DashboardAccount;
   });
 
@@ -116,14 +141,25 @@ export async function getDashboardSummary() {
     netWorth: accountBalances.reduce((total, account) => total + account.balance, 0),
     monthIncome,
     monthExpenses,
-    monthBalance: monthIncome - monthExpenses,
+    monthInvested,
+    monthTransfers,
+    monthBalance,
+    wealthBuildRate: monthIncome > 0 ? (monthBalance / monthIncome) * 100 : null,
     accounts: accountBalances,
     recentTransactions: recentTransactions.map((transaction) => ({
+      accountId: transaction.account_id,
+      accountName: accountsById.get(transaction.account_id)?.name ?? 'Cuenta',
       id: transaction.id,
+      categoryId: transaction.category_id,
+      categoryName: transaction.category_id
+        ? (categoriesById.get(transaction.category_id)?.name ?? null)
+        : null,
       description: transaction.description,
       amount: Number(transaction.amount),
       currency: transaction.currency,
       direction: transaction.direction,
+      isReviewed: transaction.is_reviewed,
+      movementType: transaction.movement_type,
       occurredAt: transaction.occurred_at,
       transactionType: transaction.transaction_type
     }))
@@ -165,7 +201,7 @@ async function getMonthlyTransactions(workspaceId: string, monthStart: Date) {
 
   const { data, error } = await supabase
     .from('transactions')
-    .select('amount, direction')
+    .select('amount, direction, movement_type')
     .eq('workspace_id', workspaceId)
     .eq('status', 'posted')
     .gte('occurred_at', monthStart.toISOString())
@@ -186,7 +222,7 @@ async function getRecentTransactions(workspaceId: string) {
   const { data, error } = await supabase
     .from('transactions')
     .select(
-      'id, account_id, amount, currency, direction, occurred_at, description, transaction_type'
+      'id, account_id, amount, currency, direction, occurred_at, description, category_id, movement_type, transaction_type, is_reviewed'
     )
     .eq('workspace_id', workspaceId)
     .eq('status', 'posted')
@@ -201,22 +237,35 @@ async function getRecentTransactions(workspaceId: string) {
   return data;
 }
 
+async function getCategoriesById(categoryIds: string[]) {
+  if (!supabase || categoryIds.length === 0) {
+    return new Map<string, CategoryRecord>();
+  }
+
+  const uniqueCategoryIds = [...new Set(categoryIds)];
+  const { data, error } = await supabase
+    .from('transaction_categories')
+    .select('id, name')
+    .in('id', uniqueCategoryIds)
+    .returns<CategoryRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  return new Map(data.map((category) => [category.id, category]));
+}
+
 async function getBalanceTransactions(
   workspaceId: string,
   accounts: AccountRecord[],
   balances: Map<string, BalanceRecord>
 ) {
-  if (!supabase || accounts.length === 0 || balances.size === 0) {
+  if (!supabase || accounts.length === 0) {
     return [];
   }
 
-  const oldestBalanceDate = [...balances.values()].reduce((oldest, balance) => {
-    const capturedAt = new Date(balance.captured_at);
-
-    return capturedAt < oldest ? capturedAt : oldest;
-  }, new Date());
-
-  const { data, error } = await supabase
+  const query = supabase
     .from('transactions')
     .select('account_id, amount, direction, occurred_at')
     .eq('workspace_id', workspaceId)
@@ -224,9 +273,19 @@ async function getBalanceTransactions(
     .in(
       'account_id',
       accounts.map((account) => account.id)
-    )
-    .gt('occurred_at', oldestBalanceDate.toISOString())
-    .returns<BalanceTransactionRecord[]>();
+    );
+
+  if (balances.size > 0) {
+    const oldestBalanceDate = [...balances.values()].reduce((oldest, balance) => {
+      const capturedAt = new Date(balance.captured_at);
+
+      return capturedAt < oldest ? capturedAt : oldest;
+    }, new Date());
+
+    query.gt('occurred_at', oldestBalanceDate.toISOString());
+  }
+
+  const { data, error } = await query.returns<BalanceTransactionRecord[]>();
 
   if (error) {
     throw error;
@@ -236,16 +295,16 @@ async function getBalanceTransactions(
 }
 
 function getBalanceWithTransactions(
-  balance: BalanceRecord,
+  balance: BalanceRecord | undefined,
   transactions: BalanceTransactionRecord[],
   accountId: string
 ) {
-  const capturedAt = new Date(balance.captured_at);
+  const capturedAt = balance ? new Date(balance.captured_at) : null;
   const delta = transactions
     .filter(
       (transaction) =>
         transaction.account_id === accountId &&
-        new Date(transaction.occurred_at) > capturedAt
+        (!capturedAt || new Date(transaction.occurred_at) > capturedAt)
     )
     .reduce(
       (total, transaction) =>
@@ -256,14 +315,22 @@ function getBalanceWithTransactions(
       0
     );
 
-  return Number(balance.balance) + delta;
+  return Number(balance?.balance ?? 0) + delta;
 }
 
-function sumTransactions(
+function sumByMovement(
   transactions: MonthlyTransactionRecord[],
-  direction: MonthlyTransactionRecord['direction']
+  movementType: MovementType
 ) {
   return transactions
-    .filter((transaction) => transaction.direction === direction)
+    .filter(
+      (transaction) =>
+        (transaction.movement_type ?? fallbackMovementType(transaction.direction)) ===
+        movementType
+    )
     .reduce((total, transaction) => total + Number(transaction.amount), 0);
+}
+
+function fallbackMovementType(direction: MonthlyTransactionRecord['direction']) {
+  return direction === 'inflow' ? 'income' : 'expense';
 }

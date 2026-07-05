@@ -271,7 +271,11 @@ function getTypeLabel(type: ParsedCsvTransaction['transactionType']) {
     return 'Transferencia';
   }
 
-  return 'Gasto';
+  if (type === 'investment') {
+    return 'Inversion';
+  }
+
+  return 'Gasto real';
 }
 
 function formatDate(date: string) {

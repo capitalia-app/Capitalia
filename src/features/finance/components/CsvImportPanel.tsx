@@ -9,7 +9,11 @@ import {
   type ParsedCsvTransaction
 } from '@/features/finance/lib/csvImport';
 
-export function CsvImportPanel() {
+type CsvImportPanelProps = {
+  onBack: () => void;
+};
+
+export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
   const [context, setContext] = useState<CsvImportContext | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [selectedFileName, setSelectedFileName] = useState('');
@@ -116,6 +120,10 @@ export function CsvImportPanel() {
 
   return (
     <section className="csv-import-panel" aria-label="Importar CSV">
+      <button className="text-link csv-import-back" onClick={onBack} type="button">
+        Volver al dashboard
+      </button>
+
       <div className="section-heading">
         <p className="eyebrow">Importar</p>
         <h2>CSV bancario</h2>
@@ -129,7 +137,7 @@ export function CsvImportPanel() {
 
       {!isLoading && context?.accounts.length === 0 ? (
         <div className="empty-state-card">
-          <span>Necesitas una cuenta financiera</span>
+          <span>Primero crea una cuenta para importar movimientos.</span>
           <p>Crea una cuenta antes de importar movimientos por CSV.</p>
         </div>
       ) : null}

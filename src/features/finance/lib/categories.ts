@@ -100,7 +100,12 @@ export async function classifyImportedTransactions(
   const categoriesById = new Map(categories.map((category) => [category.id, category]));
 
   return transactions.map((transaction) => {
-    const normalizedDescription = normalizeForMatch(transaction.description);
+    const normalizedDescription = normalizeForMatch(
+      [
+        transaction.description,
+        ...Object.values(transaction.rawRow).filter(Boolean)
+      ].join(' ')
+    );
     const matchedRule = rules.find((rule) =>
       normalizedDescription.includes(normalizeForMatch(rule.keyword))
     );

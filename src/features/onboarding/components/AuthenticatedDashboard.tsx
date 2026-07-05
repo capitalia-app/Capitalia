@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 
 import { CsvImportPanel } from '@/features/finance/components/CsvImportPanel';
 import { FinancialAccountsPanel } from '@/features/finance/components/FinancialAccountsPanel';
@@ -16,6 +16,13 @@ import {
   type DashboardSummary
 } from '@/features/finance/lib/dashboard';
 import type { MovementType } from '@/features/finance/lib/import/types';
+import {
+  createPatrimonialSnapshot,
+  resetWorkspaceFinancialData,
+  type CreateSnapshotItemInput,
+  type SnapshotItemType
+} from '@/features/finance/lib/snapshots';
+import { ActionButton } from '@/features/onboarding/components/ActionButton';
 import { BrandMark } from '@/features/onboarding/components/BrandMark';
 import { ExperienceFrame } from '@/features/onboarding/components/ExperienceFrame';
 
@@ -32,6 +39,7 @@ type AppSection =
   | 'categories'
   | 'assets'
   | 'goals'
+  | 'snapshot'
   | 'settings';
 
 type NavigationItem = {
@@ -112,6 +120,7 @@ export function AuthenticatedDashboard({
       isLoading={isLoading}
       summary={summary}
       onCreateAccount={() => handleSelectSection('accounts')}
+      onCreateSnapshot={() => handleSelectSection('snapshot')}
       onImportMovements={() => handleSelectSection('import')}
       onRetry={() => void loadDashboard()}
     />
@@ -142,6 +151,19 @@ export function AuthenticatedDashboard({
     sectionContent = <CategoriesPanel summary={summary} />;
   }
 
+  if (activeSection === 'snapshot') {
+    sectionContent = (
+      <SnapshotPanel
+        summary={summary}
+        onBack={() => handleSelectSection('dashboard')}
+        onSaved={() => {
+          setActiveSection('dashboard');
+          void loadDashboard();
+        }}
+      />
+    );
+  }
+
   if (activeSection === 'assets') {
     sectionContent = (
       <EmptySection
@@ -164,10 +186,12 @@ export function AuthenticatedDashboard({
 
   if (activeSection === 'settings') {
     sectionContent = (
-      <EmptySection
-        eyebrow="Ajustes"
-        title="Ajustes pendientes"
-        copy="La gestion de cuenta, preferencias y seguridad se incorporara cuando exista el flujo real."
+      <SettingsPanel
+        summary={summary}
+        onReset={() => {
+          setActiveSection('dashboard');
+          void loadDashboard();
+        }}
       />
     );
   }
@@ -297,6 +321,7 @@ type HomePanelProps = {
   isLoading: boolean;
   summary: DashboardSummary | null;
   onCreateAccount: () => void;
+  onCreateSnapshot: () => void;
   onImportMovements: () => void;
   onRetry: () => void;
 };
@@ -305,6 +330,7 @@ function HomePanel({
   error,
   isLoading,
   onCreateAccount,
+  onCreateSnapshot,
   onImportMovements,
   onRetry,
   summary
@@ -347,6 +373,48 @@ function HomePanel({
             : 'Sin movimientos importados'}
         </small>
       </section>
+
+      {!summary.snapshot ? (
+        <section className="empty-state-card">
+          <span>Define tu punto de partida</span>
+          <p>
+            Define tu punto de partida para que Capitalia pueda calcular tu patrimonio
+            correctamente.
+          </p>
+          <button className="text-link" onClick={onCreateSnapshot} type="button">
+            Crear snapshot inicial
+          </button>
+        </section>
+      ) : (
+        <section className="metric-grid" aria-label="Resumen desde punto de partida">
+          <MetricCard
+            label="Patrimonio inicial"
+            value={formatMoney(summary.initialNetWorth ?? 0, summary.currency)}
+            hint={formatDate(summary.snapshot.snapshotDate)}
+          />
+          <MetricCard
+            label="Ingresos desde inicio"
+            value={formatMoney(summary.incomeSinceStart, summary.currency)}
+          />
+          <MetricCard
+            label="Gastos desde inicio"
+            value={formatMoney(summary.expensesSinceStart, summary.currency)}
+            hint="Gastos reales"
+          />
+          <MetricCard
+            label="Invertido desde inicio"
+            value={formatMoney(summary.investedSinceStart, summary.currency)}
+          />
+          <MetricCard
+            label="Transferencias"
+            value={formatMoney(summary.transfersSinceStart, summary.currency)}
+          />
+          <MetricCard
+            label="Patrimonio estimado"
+            value={formatMoney(summary.estimatedNetWorth, summary.currency)}
+          />
+        </section>
+      )}
 
       <section className="metric-grid" aria-label="Resumen mensual real">
         <MetricCard
@@ -733,12 +801,414 @@ function CategoriesPanel({ summary }: CategoriesPanelProps) {
   );
 }
 
+type SnapshotPanelProps = {
+  summary: DashboardSummary | null;
+  onBack: () => void;
+  onSaved: () => void;
+};
+
+type SnapshotFormState = {
+  mode: 'today' | 'historical';
+  snapshotDate: string;
+  notes: string;
+  items: SnapshotDraftItem[];
+};
+
+type SnapshotDraftItem = CreateSnapshotItemInput & {
+  localId: string;
+  valueInput: string;
+};
+
+const snapshotItemTypes = [
+  { value: 'bank_account', label: 'Cuenta bancaria' },
+  { value: 'broker', label: 'Broker' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'fund', label: 'Fondo' },
+  { value: 'etf', label: 'ETF' },
+  { value: 'stock', label: 'Accion' },
+  { value: 'crypto', label: 'Cripto' },
+  { value: 'real_estate', label: 'Inmueble' },
+  { value: 'vehicle', label: 'Vehiculo' },
+  { value: 'other_asset', label: 'Otro activo' },
+  { value: 'liability', label: 'Pasivo' }
+] satisfies Array<{ value: SnapshotItemType; label: string }>;
+
+function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [formState, setFormState] = useState<SnapshotFormState>({
+    items: [createDraftSnapshotItem(summary?.currency ?? 'EUR')],
+    mode: 'today',
+    notes: '',
+    snapshotDate: today
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    setError(null);
+
+    if (!summary) {
+      setError('No se encontro un workspace activo.');
+      return;
+    }
+
+    const items = formState.items
+      .map((item) => ({
+        currency: item.currency.trim().toUpperCase(),
+        name: item.name.trim(),
+        notes: item.notes?.trim() || null,
+        type: item.type,
+        value: Number(item.valueInput)
+      }))
+      .filter((item) => item.name && Number.isFinite(item.value));
+
+    if (items.length === 0) {
+      setError('Anade al menos una linea de patrimonio inicial.');
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await createPatrimonialSnapshot({
+        items,
+        name: 'Snapshot inicial',
+        notes: formState.notes.trim() || null,
+        snapshotDate: formState.snapshotDate,
+        workspaceId: summary.workspace.id
+      });
+      onSaved();
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="accounts-panel" aria-label="Snapshot patrimonial">
+      <button className="text-link csv-import-back" onClick={onBack} type="button">
+        Volver al dashboard
+      </button>
+
+      <div className="section-heading">
+        <p className="eyebrow">Punto de partida</p>
+        <h2>Define tu punto de partida</h2>
+        <span>Capitalia necesita saber desde que fecha empiezas.</span>
+      </div>
+
+      <div className="empty-state-card">
+        <span>Para que tu patrimonio cuadre</span>
+        <p>
+          Capitalia necesita saber desde que fecha empiezas y cuanto tenias en cada cuenta
+          o activo.
+        </p>
+      </div>
+
+      {error ? <p className="auth-message auth-message--error">{error}</p> : null}
+
+      <form className="account-form">
+        <div className="snapshot-mode-grid">
+          <button
+            className={
+              formState.mode === 'today'
+                ? 'snapshot-mode snapshot-mode--active'
+                : 'snapshot-mode'
+            }
+            onClick={() =>
+              setFormState((current) => ({
+                ...current,
+                mode: 'today',
+                snapshotDate: today
+              }))
+            }
+            type="button"
+          >
+            Empezar desde hoy
+          </button>
+          <button
+            className={
+              formState.mode === 'historical'
+                ? 'snapshot-mode snapshot-mode--active'
+                : 'snapshot-mode'
+            }
+            onClick={() =>
+              setFormState((current) => ({
+                ...current,
+                mode: 'historical'
+              }))
+            }
+            type="button"
+          >
+            Reconstruir desde otra fecha
+          </button>
+        </div>
+
+        <label>
+          <span>Fecha de inicio</span>
+          <input
+            onChange={(event) =>
+              setFormState((current) => ({
+                ...current,
+                snapshotDate: event.target.value
+              }))
+            }
+            type="date"
+            value={formState.snapshotDate}
+          />
+        </label>
+
+        {formState.items.map((item) => (
+          <div className="snapshot-item-row" key={item.localId}>
+            <label>
+              <span>Nombre</span>
+              <input
+                onChange={(event) =>
+                  updateDraftItem(setFormState, item.localId, {
+                    name: event.target.value
+                  })
+                }
+                placeholder="BBVA, MyInvestor, BTC..."
+                type="text"
+                value={item.name}
+              />
+            </label>
+            <label>
+              <span>Tipo</span>
+              <select
+                onChange={(event) =>
+                  updateDraftItem(setFormState, item.localId, {
+                    type: event.target.value as SnapshotItemType
+                  })
+                }
+                value={item.type}
+              >
+                {snapshotItemTypes.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="account-form__grid">
+              <label>
+                <span>Valor inicial</span>
+                <input
+                  inputMode="decimal"
+                  onChange={(event) =>
+                    updateDraftItem(setFormState, item.localId, {
+                      valueInput: event.target.value
+                    })
+                  }
+                  placeholder="0"
+                  step="0.01"
+                  type="number"
+                  value={item.valueInput}
+                />
+              </label>
+              <label>
+                <span>Moneda</span>
+                <input
+                  maxLength={3}
+                  onChange={(event) =>
+                    updateDraftItem(setFormState, item.localId, {
+                      currency: event.target.value.toUpperCase()
+                    })
+                  }
+                  type="text"
+                  value={item.currency}
+                />
+              </label>
+            </div>
+            <label>
+              <span>Notas opcionales</span>
+              <input
+                onChange={(event) =>
+                  updateDraftItem(setFormState, item.localId, {
+                    notes: event.target.value
+                  })
+                }
+                type="text"
+                value={item.notes ?? ''}
+              />
+            </label>
+          </div>
+        ))}
+
+        <div className="account-form__actions">
+          <button
+            className="text-link"
+            onClick={() =>
+              setFormState((current) => ({
+                ...current,
+                items: [
+                  ...current.items,
+                  createDraftSnapshotItem(summary?.currency ?? 'EUR')
+                ]
+              }))
+            }
+            type="button"
+          >
+            Anadir linea
+          </button>
+          <ActionButton
+            disabled={isSaving}
+            onClick={() => void handleSave()}
+            type="button"
+          >
+            {isSaving ? 'Guardando...' : 'Guardar snapshot'}
+          </ActionButton>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+type SettingsPanelProps = {
+  summary: DashboardSummary | null;
+  onReset: () => void;
+};
+
+function SettingsPanel({ onReset, summary }: SettingsPanelProps) {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  async function handleReset() {
+    setError(null);
+    setSuccess(null);
+
+    if (!summary) {
+      setError('No se encontro un workspace activo.');
+      return;
+    }
+
+    if (confirmation !== 'RESET CAPITALIA') {
+      setError('Escribe RESET CAPITALIA para confirmar.');
+      return;
+    }
+
+    setIsResetting(true);
+
+    try {
+      await resetWorkspaceFinancialData(summary.workspace.id);
+      setSuccess('Datos financieros reseteados. Tu usuario y workspace siguen intactos.');
+      setConfirmation('');
+      setIsModalOpen(false);
+      onReset();
+    } catch (resetError) {
+      setError(getErrorMessage(resetError));
+    } finally {
+      setIsResetting(false);
+    }
+  }
+
+  return (
+    <section className="empty-section" aria-label="Ajustes">
+      <div className="section-heading">
+        <p className="eyebrow">Ajustes</p>
+        <h2>Cuenta y seguridad</h2>
+        <span>{summary?.workspace.name ?? 'Workspace personal'}</span>
+      </div>
+
+      {error ? <p className="auth-message auth-message--error">{error}</p> : null}
+      {success ? <p className="auth-message auth-message--success">{success}</p> : null}
+
+      <section className="danger-zone">
+        <div>
+          <span>Zona peligrosa</span>
+          <p>
+            Esto borrara movimientos, balances, cuentas financieras, reglas
+            personalizadas, activos, precios y snapshots de este workspace. No borrara tu
+            usuario ni el workspace.
+          </p>
+        </div>
+        <button
+          className="danger-button"
+          onClick={() => setIsModalOpen(true)}
+          type="button"
+        >
+          Resetear datos financieros
+        </button>
+      </section>
+
+      {isModalOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="danger-modal" role="dialog" aria-modal="true">
+            <div className="section-heading">
+              <p className="eyebrow">Confirmacion</p>
+              <h2>Reset financiero</h2>
+              <span>Esta accion no borra tu usuario ni workspace.</span>
+            </div>
+            <p>
+              Se borraran movimientos, balances, cuentas financieras, reglas
+              personalizadas, activos, precios y snapshots. Para confirmar, escribe
+              exactamente RESET CAPITALIA.
+            </p>
+            <input
+              onChange={(event) => setConfirmation(event.target.value)}
+              placeholder="RESET CAPITALIA"
+              type="text"
+              value={confirmation}
+            />
+            <div className="account-form__actions">
+              <button
+                className="text-link"
+                disabled={isResetting}
+                onClick={() => setIsModalOpen(false)}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                className="danger-button"
+                disabled={isResetting || confirmation !== 'RESET CAPITALIA'}
+                onClick={() => void handleReset()}
+                type="button"
+              >
+                {isResetting ? 'Reseteando...' : 'Confirmar reset'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 const movementGroups = [
   { label: 'Ingresos', type: 'income' },
   { label: 'Gastos reales', type: 'expense' },
   { label: 'Inversiones', type: 'investment' },
   { label: 'Transferencias', type: 'transfer' }
 ] satisfies { label: string; type: MovementType }[];
+
+function createDraftSnapshotItem(currency: string) {
+  return {
+    currency,
+    localId: crypto.randomUUID(),
+    name: '',
+    notes: '',
+    type: 'bank_account',
+    value: 0,
+    valueInput: ''
+  } satisfies SnapshotDraftItem;
+}
+
+function updateDraftItem(
+  setFormState: Dispatch<SetStateAction<SnapshotFormState>>,
+  localId: string,
+  patch: Partial<SnapshotDraftItem>
+) {
+  setFormState((current) => ({
+    ...current,
+    items: current.items.map((item) =>
+      item.localId === localId ? { ...item, ...patch } : item
+    )
+  }));
+}
 
 type EmptySectionProps = {
   eyebrow: string;

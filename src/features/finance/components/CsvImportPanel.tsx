@@ -117,7 +117,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
       });
 
       setSuccess(
-        `Importacion completada: ${result.importedCount} movimientos importados, ${result.duplicateCount} duplicados omitidos y ${result.ignoredCount} movimientos ignorados.`
+        `Importacion completada: ${result.importedCount} movimientos importados, ${result.duplicateCount} duplicados omitidos, ${result.pendingReviewCount} pendientes de revisar y ${result.ignoredCount} movimientos ignorados.`
       );
       setPreviewRows([]);
       setSelectedFileName('');

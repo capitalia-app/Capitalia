@@ -739,6 +739,111 @@ h1 {
   line-height: 1.45;
 }
 
+.snapshot-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.snapshot-mode {
+  min-height: 54px;
+  border: 1px solid rgba(244, 239, 228, 0.12);
+  border-radius: 8px;
+  padding: 10px;
+  color: rgba(244, 239, 228, 0.72);
+  background: rgba(244, 239, 228, 0.06);
+  font-size: 0.9rem;
+  font-weight: 760;
+}
+
+.snapshot-mode--active {
+  border-color: rgba(196, 161, 90, 0.5);
+  color: var(--paper);
+  background: rgba(196, 161, 90, 0.18);
+}
+
+.snapshot-item-row {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(7, 12, 16, 0.24);
+}
+
+.danger-zone {
+  display: grid;
+  gap: 16px;
+  border: 1px solid rgba(122, 63, 70, 0.5);
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(122, 63, 70, 0.14);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.danger-zone span {
+  color: var(--paper);
+  font-size: 1.05rem;
+  font-weight: 840;
+}
+
+.danger-zone p,
+.danger-modal p {
+  margin: 8px 0 0;
+  color: rgba(244, 239, 228, 0.62);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.danger-button {
+  min-height: 44px;
+  border: 1px solid rgba(255, 180, 180, 0.28);
+  border-radius: 8px;
+  padding: 0 16px;
+  color: #ffe8e8;
+  background: rgba(122, 63, 70, 0.54);
+  font-weight: 820;
+}
+
+.danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(2, 6, 8, 0.68);
+}
+
+.danger-modal {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 520px);
+  border: 1px solid rgba(244, 239, 228, 0.14);
+  border-radius: 8px;
+  padding: 18px;
+  color: var(--paper);
+  background: rgba(7, 12, 16, 0.96);
+  box-shadow: var(--shadow);
+}
+
+.danger-modal input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(244, 239, 228, 0.16);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--paper);
+  background: rgba(244, 239, 228, 0.08);
+  outline: none;
+}
+
 .accounts-panel {
   display: grid;
   align-content: start;

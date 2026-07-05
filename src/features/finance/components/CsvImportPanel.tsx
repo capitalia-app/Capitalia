@@ -127,7 +127,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
       <div className="section-heading">
         <p className="eyebrow">Importar</p>
         <h2>CSV bancario</h2>
-        <span>Formato basico BBVA</span>
+        <span>Formato oficial BBVA</span>
       </div>
 
       {error ? <p className="auth-message auth-message--error">{error}</p> : null}
@@ -166,9 +166,11 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
 
           <label className="file-drop">
             <span>{selectedFileName || 'Seleccionar CSV'}</span>
-            <small>BBVA: fecha, concepto, importe y divisa opcional</small>
+            <small>
+              BBVA CSV o Excel: Valor, Fecha, Concepto, Movimiento, Importe y Divisa
+            </small>
             <input
-              accept=".csv,text/csv"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               disabled={isParsing || isSaving}
               onChange={(event) => {
                 void handleFileChange(event);

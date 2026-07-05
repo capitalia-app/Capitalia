@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { CsvImportPanel } from '@/features/finance/components/CsvImportPanel';
+import { FinancialAccountsPanel } from '@/features/finance/components/FinancialAccountsPanel';
 import { BrandMark } from '@/features/onboarding/components/BrandMark';
 import { ExperienceFrame } from '@/features/onboarding/components/ExperienceFrame';
 
@@ -8,7 +10,7 @@ type AuthenticatedDashboardProps = {
   userEmail?: string | null;
 };
 
-type DashboardTab = 'home' | 'assets' | 'goals';
+type DashboardTab = 'home' | 'accounts' | 'import' | 'assets' | 'goals';
 
 const summaryCards = [
   {
@@ -114,6 +116,14 @@ export function AuthenticatedDashboard({
   const animatedNetWorth = useAnimatedAmount(124580);
 
   const tabContent = useMemo(() => {
+    if (activeTab === 'accounts') {
+      return <FinancialAccountsPanel />;
+    }
+
+    if (activeTab === 'import') {
+      return <CsvImportPanel onBack={() => setActiveTab('home')} />;
+    }
+
     if (activeTab === 'assets') {
       return <AssetsPanel />;
     }
@@ -122,7 +132,12 @@ export function AuthenticatedDashboard({
       return <GoalsPanel />;
     }
 
-    return <HomePanel animatedNetWorth={animatedNetWorth} />;
+    return (
+      <HomePanel
+        animatedNetWorth={animatedNetWorth}
+        onImportMovements={() => setActiveTab('import')}
+      />
+    );
   }, [activeTab, animatedNetWorth]);
 
   return (
@@ -130,7 +145,7 @@ export function AuthenticatedDashboard({
       <header className="dashboard-header">
         <BrandMark />
         <div className="dashboard-session">
-          {userEmail ? <span>Sesión Supabase activa: {userEmail}</span> : null}
+          {userEmail ? <span>Sesion Supabase activa: {userEmail}</span> : null}
           {onSignOut ? (
             <button className="text-link" onClick={onSignOut} type="button">
               Salir
@@ -146,6 +161,18 @@ export function AuthenticatedDashboard({
           activeTab={activeTab}
           label="Inicio"
           tab="home"
+          onSelect={setActiveTab}
+        />
+        <TabButton
+          activeTab={activeTab}
+          label="Cuentas"
+          tab="accounts"
+          onSelect={setActiveTab}
+        />
+        <TabButton
+          activeTab={activeTab}
+          label="Importar"
+          tab="import"
           onSelect={setActiveTab}
         />
         <TabButton
@@ -192,9 +219,10 @@ function TabButton({ activeTab, label, onSelect, tab }: TabButtonProps) {
 
 type HomePanelProps = {
   animatedNetWorth: number;
+  onImportMovements: () => void;
 };
 
-function HomePanel({ animatedNetWorth }: HomePanelProps) {
+function HomePanel({ animatedNetWorth, onImportMovements }: HomePanelProps) {
   return (
     <>
       <section className="dashboard-hero" aria-label="Resumen financiero">
@@ -206,6 +234,12 @@ function HomePanel({ animatedNetWorth }: HomePanelProps) {
         <p>Construyes patrimonio, no controlas gastos</p>
         <small>+2.840 EUR este mes</small>
       </section>
+
+      <button className="import-entry-card" onClick={onImportMovements} type="button">
+        <span>Importar CSV</span>
+        <strong>Importar movimientos</strong>
+        <small>Sube un CSV bancario y revisa los movimientos antes de guardar.</small>
+      </button>
 
       <section className="metric-grid" aria-label="Resumen mensual">
         {summaryCards.map((card) => (

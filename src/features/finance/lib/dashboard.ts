@@ -5,6 +5,8 @@ import {
 import type { MovementType } from '@/features/finance/lib/import/types';
 import {
   getLatestPatrimonialSnapshot,
+  listFinancialContainers,
+  type FinancialContainer,
   type PatrimonialSnapshot
 } from '@/features/finance/lib/snapshots';
 import { supabase } from '@/shared/lib/supabase';
@@ -51,6 +53,7 @@ export type DashboardSummary = {
   investedSinceStart: number;
   transfersSinceStart: number;
   estimatedNetWorth: number;
+  containers: FinancialContainer[];
   accounts: DashboardAccount[];
   recentTransactions: DashboardTransaction[];
 };
@@ -120,7 +123,10 @@ export async function getDashboardSummary() {
     workspace.id,
     accounts.map((account) => account.id)
   );
-  const snapshot = await getLatestPatrimonialSnapshot(workspace.id);
+  const [snapshot, containers] = await Promise.all([
+    getLatestPatrimonialSnapshot(workspace.id),
+    listFinancialContainers(workspace.id)
+  ]);
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const [monthTransactions, startTransactions, recentTransactions, balanceTransactions] =
@@ -161,9 +167,13 @@ export async function getDashboardSummary() {
     (total, account) => total + account.balance,
     0
   );
+  const containerNetWorth = containers.reduce(
+    (total, container) => total + container.totalValue,
+    0
+  );
   const estimatedNetWorth = snapshot
     ? snapshot.initialNetWorth + incomeSinceStart - expensesSinceStart
-    : accountNetWorth;
+    : containerNetWorth || accountNetWorth;
 
   return {
     workspace,
@@ -184,6 +194,7 @@ export async function getDashboardSummary() {
     investedSinceStart,
     transfersSinceStart,
     estimatedNetWorth,
+    containers,
     accounts: accountBalances,
     recentTransactions: recentTransactions.map((transaction) => ({
       accountId: transaction.account_id,

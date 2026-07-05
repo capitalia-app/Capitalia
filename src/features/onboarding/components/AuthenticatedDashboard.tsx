@@ -121,7 +121,7 @@ export function AuthenticatedDashboard({
     }
 
     if (activeTab === 'import') {
-      return <CsvImportPanel />;
+      return <CsvImportPanel onBack={() => setActiveTab('home')} />;
     }
 
     if (activeTab === 'assets') {
@@ -132,7 +132,12 @@ export function AuthenticatedDashboard({
       return <GoalsPanel />;
     }
 
-    return <HomePanel animatedNetWorth={animatedNetWorth} />;
+    return (
+      <HomePanel
+        animatedNetWorth={animatedNetWorth}
+        onImportMovements={() => setActiveTab('import')}
+      />
+    );
   }, [activeTab, animatedNetWorth]);
 
   return (
@@ -214,9 +219,10 @@ function TabButton({ activeTab, label, onSelect, tab }: TabButtonProps) {
 
 type HomePanelProps = {
   animatedNetWorth: number;
+  onImportMovements: () => void;
 };
 
-function HomePanel({ animatedNetWorth }: HomePanelProps) {
+function HomePanel({ animatedNetWorth, onImportMovements }: HomePanelProps) {
   return (
     <>
       <section className="dashboard-hero" aria-label="Resumen financiero">
@@ -228,6 +234,12 @@ function HomePanel({ animatedNetWorth }: HomePanelProps) {
         <p>Construyes patrimonio, no controlas gastos</p>
         <small>+2.840 EUR este mes</small>
       </section>
+
+      <button className="import-entry-card" onClick={onImportMovements} type="button">
+        <span>Importar CSV</span>
+        <strong>Importar movimientos</strong>
+        <small>Sube un CSV bancario y revisa los movimientos antes de guardar.</small>
+      </button>
 
       <section className="metric-grid" aria-label="Resumen mensual">
         {summaryCards.map((card) => (

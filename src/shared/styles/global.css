@@ -355,10 +355,10 @@ h1 {
   z-index: 110;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  gap: 18px;
-  width: min(88vw, 380px);
+  gap: 14px;
+  width: min(86vw, 280px);
   height: 100dvh;
-  padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+  padding: max(16px, env(safe-area-inset-top)) 14px max(16px, env(safe-area-inset-bottom));
   border-right: 1px solid rgba(244, 239, 228, 0.12);
   background:
     linear-gradient(180deg, rgba(196, 161, 90, 0.12), transparent 34%),
@@ -376,13 +376,30 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 10px;
+}
+
+.drawer-heading .brand-mark {
+  width: 38px;
+  height: 38px;
+}
+
+.drawer-heading .icon-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  background: rgba(244, 239, 228, 0.06);
+  font-size: 0.92rem;
+  font-weight: 820;
 }
 
 .drawer-nav {
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 7px;
   min-height: 0;
   overflow-y: auto;
 }
@@ -399,10 +416,10 @@ h1 {
 .drawer-nav__item {
   display: grid;
   gap: 3px;
-  min-height: 58px;
+  min-height: 50px;
   border: 1px solid rgba(244, 239, 228, 0.08);
   border-radius: 8px;
-  padding: 11px 12px;
+  padding: 9px 10px;
   color: inherit;
   background: rgba(244, 239, 228, 0.05);
   text-align: left;
@@ -419,7 +436,7 @@ h1 {
 
 .drawer-nav__item span {
   color: var(--paper);
-  font-size: 0.98rem;
+  font-size: 0.9rem;
   font-weight: 820;
   overflow-wrap: anywhere;
 }
@@ -427,7 +444,7 @@ h1 {
 .drawer-nav__item small,
 .drawer-footer span {
   color: rgba(244, 239, 228, 0.56);
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   font-weight: 720;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -507,13 +524,17 @@ h1 {
   gap: 10px;
 }
 
+.annual-kpi-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .metric-card {
   display: grid;
-  min-height: 118px;
+  min-height: 108px;
   align-content: space-between;
   border: 1px solid rgba(244, 239, 228, 0.12);
   border-radius: 8px;
-  padding: 14px;
+  padding: 13px;
   background: rgba(244, 239, 228, 0.08);
   backdrop-filter: blur(18px);
   animation: card-in 700ms cubic-bezier(0.2, 0.85, 0.2, 1) both;
@@ -530,7 +551,7 @@ h1 {
 .metric-card strong {
   overflow-wrap: anywhere;
   color: var(--paper);
-  font-size: clamp(1rem, 4.2vw, 1.28rem);
+  font-size: clamp(0.98rem, 3.8vw, 1.22rem);
   line-height: 1.05;
 }
 
@@ -617,10 +638,10 @@ h1 {
 
 .annual-table-card {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   border: 1px solid rgba(244, 239, 228, 0.12);
   border-radius: 8px;
-  padding: 14px;
+  padding: 12px;
   background: rgba(244, 239, 228, 0.07);
   box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
@@ -628,22 +649,24 @@ h1 {
 
 .annual-table-scroll {
   overflow-x: auto;
+  max-width: 100%;
   border: 1px solid rgba(244, 239, 228, 0.09);
   border-radius: 8px;
 }
 
 .annual-table {
   width: 100%;
-  min-width: 920px;
+  min-width: 860px;
   border-collapse: collapse;
   color: var(--paper);
-  font-size: 0.82rem;
+  font-size: 0.74rem;
+  table-layout: fixed;
 }
 
 .annual-table th,
 .annual-table td {
   border-bottom: 1px solid rgba(244, 239, 228, 0.08);
-  padding: 10px 8px;
+  padding: 7px 5px;
   text-align: right;
   white-space: nowrap;
 }
@@ -654,7 +677,7 @@ h1 {
   z-index: 2;
   color: rgba(244, 239, 228, 0.58);
   background: rgba(7, 12, 16, 0.98);
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   text-transform: uppercase;
 }
 
@@ -662,8 +685,8 @@ h1 {
   position: sticky;
   left: 0;
   z-index: 3;
-  width: 190px;
-  max-width: 190px;
+  width: 156px;
+  max-width: 156px;
   text-align: left;
   background: rgba(7, 12, 16, 0.98);
 }
@@ -679,20 +702,44 @@ h1 {
   display: block;
   margin-bottom: 3px;
   color: rgba(244, 239, 228, 0.48);
-  font-size: 0.68rem;
+  font-size: 0.6rem;
   text-transform: uppercase;
 }
 
 .annual-cell-button {
   width: 100%;
-  min-height: 34px;
+  min-height: 28px;
   border: 1px solid transparent;
   border-radius: 999px;
-  padding: 4px 8px;
+  padding: 3px 4px;
   color: inherit;
   background: transparent;
   font: inherit;
   font-weight: 780;
+  text-align: right;
+}
+
+.annual-table-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 4px 14px;
+  padding-top: 0;
+}
+
+.annual-table-heading .eyebrow {
+  grid-column: 1 / -1;
+}
+
+.annual-table-heading h2 {
+  max-width: none;
+  font-size: clamp(1.15rem, 2.2vw, 1.55rem);
+  line-height: 1.05;
+}
+
+.annual-table-heading span {
+  justify-self: end;
+  color: rgba(244, 239, 228, 0.58);
+  font-size: 0.74rem;
   text-align: right;
 }
 
@@ -2185,6 +2232,19 @@ h1 {
 }
 
 @media (max-width: 759px) {
+  .annual-table-heading {
+    grid-template-columns: 1fr;
+  }
+
+  .annual-table-heading span {
+    justify-self: start;
+    text-align: left;
+  }
+
+  .annual-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
   .movement-filters {
     top: 64px;
     padding: 10px;
@@ -2271,6 +2331,19 @@ h1 {
     padding: clamp(28px, 4vw, 48px);
   }
 
+  .dashboard-screen {
+    align-items: start;
+  }
+
+  .dashboard-screen .experience-canvas {
+    width: min(calc(100vw - 48px), 1480px);
+    min-height: 100dvh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
+    gap: 18px;
+    padding: clamp(18px, 2vw, 28px);
+  }
+
   .welcome-screen .experience-canvas {
     grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.8fr);
     grid-template-rows: auto 1fr auto;
@@ -2305,12 +2378,6 @@ h1 {
     padding-top: 0;
   }
 
-  .dashboard-screen .experience-canvas {
-    grid-template-columns: minmax(0, 0.92fr) minmax(320px, 1.08fr);
-    grid-template-rows: auto auto 1fr auto;
-    gap: 24px;
-  }
-
   .app-header,
   .dashboard-hero {
     grid-column: 1 / -1;
@@ -2327,7 +2394,7 @@ h1 {
   }
 
   .dashboard-hero strong {
-    font-size: clamp(4rem, 7vw, 6.6rem);
+    font-size: clamp(3.2rem, 5.6vw, 5.2rem);
   }
 
   .dashboard-hero p,
@@ -2337,7 +2404,30 @@ h1 {
   }
 
   .metric-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .annual-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .annual-table {
+    font-size: 0.68rem;
+  }
+
+  .annual-table th,
+  .annual-table td {
+    padding: 6px 4px;
+  }
+
+  .annual-table th:first-child {
+    width: 132px;
+    max-width: 132px;
+  }
+
+  .annual-cell-button {
+    min-height: 26px;
+    padding: 2px 3px;
   }
 
   .assets-panel {
@@ -2357,14 +2447,69 @@ h1 {
 }
 
 @media (min-width: 760px) and (max-width: 1039px) {
+  .dashboard-screen .experience-canvas {
+    width: min(calc(100vw - 32px), 1120px);
+  }
+
   .movement-filters__compact label {
     grid-column: 1 / -1;
   }
 }
 
 @media (min-width: 1040px) {
+  .annual-kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .metric-card {
+    min-height: 104px;
+  }
+
+  .metric-card strong {
+    font-size: clamp(1rem, 1.45vw, 1.32rem);
+  }
+
+  .annual-table-card {
+    padding: 12px;
+  }
+
+  .annual-table {
+    min-width: 0;
+    font-size: 0.7rem;
+  }
+
+  .annual-table th:first-child {
+    width: 144px;
+    max-width: 144px;
+  }
+
+  .annual-table th,
+  .annual-table td {
+    padding: 7px 4px;
+  }
+
   .movement-filters__compact label {
     grid-column: span 2;
+  }
+}
+
+@media (min-width: 1280px) {
+  .dashboard-screen .experience-canvas {
+    width: min(calc(100vw - 64px), 1600px);
+  }
+
+  .annual-table {
+    font-size: 0.74rem;
+  }
+
+  .annual-table th:first-child {
+    width: 170px;
+    max-width: 170px;
+  }
+
+  .annual-table th,
+  .annual-table td {
+    padding: 8px 5px;
   }
 }
 

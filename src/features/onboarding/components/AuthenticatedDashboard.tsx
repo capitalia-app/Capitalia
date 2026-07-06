@@ -926,7 +926,7 @@ function AnnualTable({
 }) {
   return (
     <section className="annual-table-card" aria-label={title}>
-      <div className="section-heading">
+      <div className="section-heading annual-table-heading">
         <p className="eyebrow">Excel inteligente</p>
         <h2>{title}</h2>
         <span>Cada celda abre movimientos filtrados</span>

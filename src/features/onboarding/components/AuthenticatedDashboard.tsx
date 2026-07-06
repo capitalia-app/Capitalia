@@ -6,6 +6,7 @@ import {
   type Dispatch,
   type SetStateAction
 } from 'react';
+import { createPortal } from 'react-dom';
 
 import { CsvImportPanel } from '@/features/finance/components/CsvImportPanel';
 import {
@@ -1119,17 +1120,20 @@ function MovementEditorModal({
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
+    const animationFrame = window.requestAnimationFrame(() => {
+      contentRef.current?.scrollTo({ top: 0 });
+    });
 
     document.body.style.overflow = 'hidden';
-    contentRef.current?.scrollTo({ top: 0 });
 
     return () => {
+      window.cancelAnimationFrame(animationFrame);
       document.body.style.overflow = previousOverflow;
     };
-  }, []);
+  }, [movement.id]);
 
-  return (
-    <div className="modal-backdrop" role="presentation">
+  const modal = (
+    <div className="modal-backdrop movement-editor-backdrop" role="presentation">
       <section className="danger-modal movement-editor" role="dialog" aria-modal="true">
         <div className="section-heading movement-editor__header">
           <div>
@@ -1286,6 +1290,8 @@ function MovementEditorModal({
       </section>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }
 
 type CategoriesPanelProps = {

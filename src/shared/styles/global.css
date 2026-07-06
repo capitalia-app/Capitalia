@@ -809,6 +809,9 @@ h1 {
   position: sticky;
   top: 72px;
   z-index: 4;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   display: grid;
   gap: 10px;
   border: 1px solid rgba(244, 239, 228, 0.1);
@@ -857,6 +860,7 @@ h1 {
 }
 
 .movement-filters label {
+  min-width: 0;
   display: grid;
   gap: 7px;
 }
@@ -1102,6 +1106,14 @@ h1 {
   background: rgba(2, 6, 8, 0.68);
 }
 
+.movement-editor-backdrop {
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
 .danger-modal {
   display: grid;
   gap: 14px;
@@ -1345,17 +1357,25 @@ h1 {
 }
 
 .movement-editor {
+  position: relative;
   align-self: center;
-  width: min(100%, 680px);
-  max-height: 85vh;
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
   overflow: hidden;
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .movement-editor__header {
+  position: sticky;
+  top: -18px;
+  z-index: 2;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 12px;
+  margin: -18px -18px 0;
+  border-bottom: 1px solid rgba(244, 239, 228, 0.1);
+  padding: 18px;
+  background: rgba(7, 12, 16, 0.98);
 }
 
 .movement-editor__header h2 {
@@ -1402,6 +1422,20 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 14px;
+}
+
+.movement-editor__checks .remember-rule {
+  min-height: 28px;
+  padding: 0;
+}
+
+.movement-editor__checks .remember-rule input {
+  flex: 0 0 16px;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
 }
 
 .csv-import-panel {
@@ -1972,8 +2006,9 @@ h1 {
     min-height: 42px;
   }
 
-  .modal-backdrop:has(.movement-editor) {
-    place-items: end center;
+  .movement-editor-backdrop {
+    align-items: flex-end;
+    justify-content: center;
     padding: 0;
   }
 
@@ -2017,12 +2052,12 @@ h1 {
 
 @media (min-width: 760px) {
   .movement-filters {
-    grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.28fr);
+    grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(140px, 1fr));
     align-items: start;
   }
 
   .movement-filters__compact {
-    grid-template-columns: minmax(0, 1fr);
+    display: contents;
   }
 
   .movement-filter-button,
@@ -2031,11 +2066,12 @@ h1 {
   }
 
   .movement-filters__advanced {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    display: contents;
   }
 
   .movement-filters__advanced .account-form__grid {
     grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
   }
 
   .experience-frame {

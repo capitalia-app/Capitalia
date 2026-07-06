@@ -806,12 +806,16 @@ h1 {
 }
 
 .movement-filters {
+  position: sticky;
+  top: 72px;
+  z-index: 4;
   display: grid;
   gap: 10px;
   border: 1px solid rgba(244, 239, 228, 0.1);
   border-radius: 8px;
   padding: 12px;
   background: rgba(244, 239, 228, 0.06);
+  backdrop-filter: blur(18px);
 }
 
 .movement-filters label {
@@ -1064,12 +1068,14 @@ h1 {
   display: grid;
   gap: 14px;
   width: min(100%, 520px);
+  max-height: calc(100vh - 36px);
   border: 1px solid rgba(244, 239, 228, 0.14);
   border-radius: 8px;
   padding: 18px;
   color: var(--paper);
   background: rgba(7, 12, 16, 0.96);
   box-shadow: var(--shadow);
+  overflow: auto;
 }
 
 .danger-modal input {
@@ -1252,6 +1258,78 @@ h1 {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 12px;
   align-items: center;
+}
+
+.movement-pagination {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(244, 239, 228, 0.06);
+}
+
+.movement-pagination > span {
+  color: rgba(244, 239, 228, 0.66);
+  font-size: 0.82rem;
+  font-weight: 820;
+  text-align: center;
+}
+
+.movement-pagination label {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 10px;
+  align-items: center;
+}
+
+.movement-pagination label > span {
+  color: rgba(244, 239, 228, 0.56);
+  font-size: 0.72rem;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.movement-pagination select {
+  min-height: 38px;
+  border: 1px solid rgba(244, 239, 228, 0.16);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--paper);
+  background: rgba(7, 12, 16, 0.56);
+}
+
+.movement-pagination select option {
+  color: var(--ink);
+}
+
+.movement-editor {
+  align-self: center;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.movement-editor .account-form {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.movement-editor .account-form__actions {
+  position: sticky;
+  bottom: -18px;
+  margin: 0 -18px -18px;
+  border-top: 1px solid rgba(244, 239, 228, 0.1);
+  padding: 12px 18px;
+  background: rgba(7, 12, 16, 0.98);
+}
+
+.movement-editor__checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
 }
 
 .csv-import-panel {
@@ -1747,6 +1825,26 @@ h1 {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+  }
+}
+
+@media (max-width: 759px) {
+  .modal-backdrop:has(.movement-editor) {
+    place-items: end center;
+    padding: 0;
+  }
+
+  .movement-editor {
+    width: 100%;
+    max-height: min(92vh, 760px);
+    border-radius: 16px 16px 0 0;
+    padding: 16px;
+  }
+
+  .movement-editor .account-form__actions {
+    bottom: -16px;
+    margin: 0 -16px -16px;
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom));
   }
 }
 

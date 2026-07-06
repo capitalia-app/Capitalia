@@ -11,6 +11,13 @@ import { createPortal } from 'react-dom';
 
 import { CsvImportPanel } from '@/features/finance/components/CsvImportPanel';
 import {
+  getAnnualControlSummary,
+  monthLabels,
+  type AnnualCellTarget,
+  type AnnualControlSummary,
+  type AnnualTableRow
+} from '@/features/finance/lib/annualControl';
+import {
   getCurrentWorkspace,
   type FinancialAccount,
   type WorkspaceSummary
@@ -63,9 +70,14 @@ type AuthenticatedDashboardProps = {
 
 type AppSection =
   | 'dashboard'
+  | 'income'
+  | 'expenses'
+  | 'veramar'
+  | 'savings'
   | 'accounts'
   | 'import'
   | 'movements'
+  | 'ai'
   | 'categories'
   | 'assets'
   | 'goals'
@@ -81,23 +93,51 @@ type NavigationItem = {
 const navigationItems = [
   {
     section: 'dashboard',
-    label: 'Mi Patrimonio',
-    detail: 'Dashboard real'
+    label: 'Inicio',
+    detail: 'Balance general'
+  },
+  {
+    section: 'income',
+    label: 'Ingresos',
+    detail: 'Fuentes anuales'
+  },
+  {
+    section: 'expenses',
+    label: 'Gastos',
+    detail: 'Fijos y variables'
+  },
+  {
+    section: 'veramar',
+    label: 'Veramar',
+    detail: 'Mini negocio'
+  },
+  {
+    section: 'savings',
+    label: 'Ahorro/Inversion',
+    detail: 'Transferencias y activos'
   },
   {
     section: 'accounts',
     label: 'Cuentas',
-    detail: 'Estructura financiera'
+    detail: 'Saldos actuales'
   },
+  {
+    section: 'movements',
+    label: 'Movimientos',
+    detail: 'Detalle filtrable'
+  },
+  {
+    section: 'ai',
+    label: 'IA',
+    detail: 'Interpretacion financiera'
+  }
+] satisfies NavigationItem[];
+
+const utilityNavigationItems = [
   {
     section: 'import',
     label: 'Importar movimientos',
     detail: 'Excel o CSV bancario'
-  },
-  {
-    section: 'movements',
-    label: 'Flujo de dinero',
-    detail: 'Movimientos reales'
   },
   {
     section: 'categories',
@@ -107,12 +147,7 @@ const navigationItems = [
   {
     section: 'assets',
     label: 'Activos',
-    detail: 'Patrimonio avanzado'
-  },
-  {
-    section: 'goals',
-    label: 'Objetivos',
-    detail: 'Plan financiero'
+    detail: 'Detalle patrimonial'
   },
   {
     section: 'settings',
@@ -128,6 +163,12 @@ export function AuthenticatedDashboard({
   const [activeSection, setActiveSection] = useState<AppSection>('dashboard');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [annualSummary, setAnnualSummary] = useState<AnnualControlSummary | null>(null);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [isAnnualLoading, setIsAnnualLoading] = useState(true);
+  const [annualError, setAnnualError] = useState<string | null>(null);
+  const [movementInitialFilters, setMovementInitialFilters] =
+    useState<MovementFilters | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -136,10 +177,20 @@ export function AuthenticatedDashboard({
     void loadDashboard();
   }, []);
 
+  useEffect(() => {
+    if (summary) {
+      void loadAnnualSummary(summary, selectedYear);
+    }
+  }, [summary, selectedYear]);
+
   function handleSelectSection(section: AppSection) {
     setActiveSection(section);
     setIsMenuOpen(false);
     setToastMessage(null);
+
+    if (section === 'movements') {
+      setMovementInitialFilters(null);
+    }
 
     if (
       section === 'dashboard' ||
@@ -151,10 +202,33 @@ export function AuthenticatedDashboard({
     }
   }
 
+  function handleOpenMovementsFromCell(target: AnnualCellTarget) {
+    const monthStart = new Date(Date.UTC(target.year, target.month, 1));
+    const monthEnd = new Date(Date.UTC(target.year, target.month + 1, 0));
+
+    setMovementInitialFilters({
+      accountId: '',
+      categoryId: target.categoryId ?? '',
+      dateFrom: formatDateInput(monthStart),
+      dateTo: formatDateInput(monthEnd),
+      movementType: target.movementType,
+      search: target.search ?? ''
+    });
+    setActiveSection('movements');
+    setIsMenuOpen(false);
+    setToastMessage(null);
+  }
+
   let sectionContent = (
     <HomePanel
       error={error}
+      annualError={annualError}
+      annualSummary={annualSummary}
       isLoading={isLoading}
+      isAnnualLoading={isAnnualLoading}
+      onCellClick={handleOpenMovementsFromCell}
+      onYearChange={setSelectedYear}
+      selectedYear={selectedYear}
       summary={summary}
       onCreateSnapshot={() => handleSelectSection('snapshot')}
       onImportMovements={() => handleSelectSection('import')}
@@ -162,6 +236,50 @@ export function AuthenticatedDashboard({
       onViewMovements={() => handleSelectSection('movements')}
     />
   );
+
+  if (activeSection === 'income') {
+    sectionContent = (
+      <IncomePanel
+        annualError={annualError}
+        annualSummary={annualSummary}
+        isLoading={isLoading || isAnnualLoading}
+        onCellClick={handleOpenMovementsFromCell}
+      />
+    );
+  }
+
+  if (activeSection === 'expenses') {
+    sectionContent = (
+      <ExpensesPanel
+        annualError={annualError}
+        annualSummary={annualSummary}
+        isLoading={isLoading || isAnnualLoading}
+        onCellClick={handleOpenMovementsFromCell}
+      />
+    );
+  }
+
+  if (activeSection === 'veramar') {
+    sectionContent = (
+      <VeramarPanel
+        annualError={annualError}
+        annualSummary={annualSummary}
+        isLoading={isLoading || isAnnualLoading}
+        onCellClick={handleOpenMovementsFromCell}
+      />
+    );
+  }
+
+  if (activeSection === 'savings') {
+    sectionContent = (
+      <SavingsPanel
+        annualError={annualError}
+        annualSummary={annualSummary}
+        isLoading={isLoading || isAnnualLoading}
+        onCellClick={handleOpenMovementsFromCell}
+      />
+    );
+  }
 
   if (activeSection === 'accounts') {
     sectionContent = (
@@ -183,6 +301,7 @@ export function AuthenticatedDashboard({
         isLoading={isLoading}
         summary={summary}
         onImportMovements={() => handleSelectSection('import')}
+        initialFilters={movementInitialFilters}
         onRetry={() => void loadDashboard()}
         onUpdated={() => void loadDashboard()}
       />
@@ -216,6 +335,16 @@ export function AuthenticatedDashboard({
         eyebrow="Objetivos"
         title="Sin objetivos creados"
         copy="Aqui apareceran tus objetivos financieros cuando exista el flujo real para crearlos."
+      />
+    );
+  }
+
+  if (activeSection === 'ai') {
+    sectionContent = (
+      <EmptySection
+        eyebrow="IA financiera"
+        title="Interpretacion preparada"
+        copy="Aqui aparecera el analisis financiero de Capitalia cuando conectemos la capa de IA sobre tus datos reales."
       />
     );
   }
@@ -259,6 +388,20 @@ export function AuthenticatedDashboard({
       setSummary(null);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function loadAnnualSummary(nextSummary: DashboardSummary, year: number) {
+    setIsAnnualLoading(true);
+    setAnnualError(null);
+
+    try {
+      setAnnualSummary(await getAnnualControlSummary({ summary: nextSummary, year }));
+    } catch (summaryError) {
+      setAnnualError(getErrorMessage(summaryError));
+      setAnnualSummary(null);
+    } finally {
+      setIsAnnualLoading(false);
     }
   }
 
@@ -347,6 +490,22 @@ function NavigationDrawer({
 
         <nav className="drawer-nav" aria-label="Secciones de Capitalia">
           {navigationItems.map((item) => (
+            <button
+              className={
+                activeSection === item.section
+                  ? 'drawer-nav__item drawer-nav__item--active'
+                  : 'drawer-nav__item'
+              }
+              key={item.section}
+              onClick={() => onSelect(item.section)}
+              type="button"
+            >
+              <span>{item.label}</span>
+              <small>{item.detail}</small>
+            </button>
+          ))}
+          <span className="drawer-nav__label">Herramientas</span>
+          {utilityNavigationItems.map((item) => (
             <button
               className={
                 activeSection === item.section
@@ -462,22 +621,34 @@ function AppModal({
 }
 
 type HomePanelProps = {
+  annualError: string | null;
+  annualSummary: AnnualControlSummary | null;
   error: string | null;
+  isAnnualLoading: boolean;
   isLoading: boolean;
+  onCellClick: (target: AnnualCellTarget) => void;
   summary: DashboardSummary | null;
+  selectedYear: number;
   onCreateSnapshot: () => void;
   onImportMovements: () => void;
   onRetry: () => void;
   onViewMovements: () => void;
+  onYearChange: (year: number) => void;
 };
 
 function HomePanel({
+  annualError,
+  annualSummary,
   error,
+  isAnnualLoading,
   isLoading,
+  onCellClick,
   onCreateSnapshot,
   onImportMovements,
   onRetry,
   onViewMovements,
+  onYearChange,
+  selectedYear,
   summary
 }: HomePanelProps) {
   if (isLoading) {
@@ -512,21 +683,46 @@ function HomePanel({
   const initialGrossWorth = summary.initialGrossWorth ?? containerGrossWorth;
   const initialDebt = summary.initialDebt ?? containerDebt;
   const initialNetWorth = summary.initialNetWorth ?? initialGrossWorth - initialDebt;
+  const currentAccountRows =
+    summary.accounts.length > 0
+      ? summary.accounts.map((account) => ({
+          currency: account.currency,
+          id: account.id,
+          label: account.name,
+          value: account.balance
+        }))
+      : summary.containers.map((container) => ({
+          currency: container.currency,
+          id: container.id,
+          label: getContainerDisplayName(container),
+          value: container.totalValue
+        }));
+  const yearOptions = annualSummary?.availableYears.length
+    ? annualSummary.availableYears
+    : [selectedYear];
 
   return (
     <>
-      <section className="dashboard-hero" aria-label="Resumen financiero">
+      <section className="dashboard-hero annual-hero" aria-label="Balance general">
         <p className="eyebrow">{summary.workspace.name}</p>
         <div>
-          <span>Patrimonio real</span>
-          <strong>{formatMoney(summary.netWorth, summary.currency)}</strong>
+          <span>Balance general</span>
+          <strong>{selectedYear}</strong>
         </div>
         <p>Construyes patrimonio, no controlas gastos.</p>
-        <small>
-          {hasTransactions
-            ? `Balance mensual: ${formatMoney(summary.monthBalance, summary.currency)}`
-            : 'Sin movimientos importados'}
-        </small>
+        <label className="year-selector">
+          <span>Ano</span>
+          <select
+            onChange={(event) => onYearChange(Number(event.target.value))}
+            value={selectedYear}
+          >
+            {yearOptions.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </label>
       </section>
 
       {!hasStartingPoint && !hasContainers ? (
@@ -541,45 +737,90 @@ function HomePanel({
           </button>
         </section>
       ) : (
-        <section className="metric-grid" aria-label="Resumen desde punto de partida">
+        <section className="metric-grid annual-kpi-grid" aria-label="Resumen anual">
           <MetricCard
-            label="Patrimonio inicial"
-            value={formatMoney(initialNetWorth, summary.currency)}
-            hint="Punto de partida"
+            label="Ingresos anuales"
+            value={formatMoney(annualSummary?.annualIncome ?? 0, summary.currency)}
+            tone="income"
           />
           <MetricCard
-            label="Patrimonio bruto"
-            value={formatMoney(initialGrossWorth, summary.currency)}
+            label="Gastos anuales"
+            value={formatMoney(annualSummary?.annualExpenses ?? 0, summary.currency)}
+            tone="expense"
           />
-          <MetricCard label="Deudas" value={formatMoney(initialDebt, summary.currency)} />
+          <MetricCard
+            label="Balance anual"
+            value={formatMoney(annualSummary?.annualBalance ?? 0, summary.currency)}
+            tone="balance"
+          />
+          <MetricCard
+            label="Patrimonio actual"
+            value={formatMoney(
+              annualSummary?.netWorth ?? summary.netWorth,
+              summary.currency
+            )}
+            tone="investment"
+          />
         </section>
       )}
 
-      <section className="metric-grid" aria-label="Resumen mensual real">
+      <AnnualStatus error={annualError} isLoading={isAnnualLoading} onRetry={onRetry} />
+
+      {annualSummary ? (
+        <AnnualTable
+          currency={annualSummary.currency}
+          onCellClick={onCellClick}
+          rows={annualSummary.balanceRows}
+          title="Resumen mensual"
+        />
+      ) : null}
+
+      <section className="accounts-panel" aria-label="Cuentas actuales">
+        <div className="section-heading accounts-heading">
+          <div>
+            <p className="eyebrow">Cuentas</p>
+            <h2>Saldos actuales</h2>
+          </div>
+          <strong>
+            {formatMoney(annualSummary?.netWorth ?? summary.netWorth, summary.currency)}
+          </strong>
+        </div>
+
+        {currentAccountRows.length > 0 ? (
+          <div className="account-list">
+            {currentAccountRows.map((account) => (
+              <article className="account-row" key={account.id}>
+                <div>
+                  <strong>{account.label}</strong>
+                  <span>{account.currency}</span>
+                </div>
+                <div>
+                  <strong>{formatMoney(account.value, account.currency)}</strong>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state-card">
+            <span>Sin cuentas con saldo</span>
+            <p>
+              Define tu punto de partida o importa movimientos para ver saldos reales.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section className="metric-grid" aria-label="Punto de partida">
         <MetricCard
-          label="Balance mensual"
-          value={formatMoney(summary.monthBalance, summary.currency)}
-          hint="Ingresos - gastos reales"
+          label="Patrimonio inicial"
+          value={formatMoney(initialNetWorth, summary.currency)}
+          hint="Punto de partida"
         />
         <MetricCard
-          label="Ingresos"
-          value={formatMoney(summary.monthIncome, summary.currency)}
+          label="Patrimonio bruto"
+          value={formatMoney(initialGrossWorth, summary.currency)}
         />
-        <MetricCard
-          label="Gastos"
-          value={formatMoney(summary.monthExpenses, summary.currency)}
-          hint="Gastos reales"
-        />
-        <MetricCard
-          label="Invertido"
-          value={formatMoney(summary.monthInvested, summary.currency)}
-          hint="Construccion patrimonial"
-        />
-        <MetricCard
-          label="Transferencias"
-          value={formatMoney(summary.monthTransfers, summary.currency)}
-          hint="Sin impacto en balance"
-        />
+        <MetricCard label="Deudas" value={formatMoney(initialDebt, summary.currency)} />
       </section>
 
       {!hasContainers && !hasStartingPoint ? (
@@ -602,7 +843,7 @@ function HomePanel({
         <strong>Excel o CSV bancario</strong>
       </button>
 
-      <section className="assets-panel" aria-label="Ultimos movimientos">
+      <section className="assets-panel compact-activity" aria-label="Ultimos movimientos">
         <div className="section-heading">
           <p className="eyebrow">Actividad</p>
           <h2>Ultimos movimientos</h2>
@@ -644,8 +885,383 @@ function HomePanel({
   );
 }
 
+function AnnualStatus({
+  error,
+  isLoading,
+  onRetry
+}: {
+  error: string | null;
+  isLoading: boolean;
+  onRetry: () => void;
+}) {
+  if (isLoading) {
+    return <p className="panel-status">Calculando balance anual real...</p>;
+  }
+
+  if (!error) {
+    return null;
+  }
+
+  return (
+    <section className="empty-state-card">
+      <span>No se pudo calcular el resumen anual.</span>
+      <p>{error}</p>
+      <button className="text-link" onClick={onRetry} type="button">
+        Reintentar
+      </button>
+    </section>
+  );
+}
+
+function AnnualTable({
+  currency,
+  onCellClick,
+  rows,
+  title
+}: {
+  currency: string;
+  onCellClick: (target: AnnualCellTarget) => void;
+  rows: AnnualTableRow[];
+  title: string;
+}) {
+  return (
+    <section className="annual-table-card" aria-label={title}>
+      <div className="section-heading">
+        <p className="eyebrow">Excel inteligente</p>
+        <h2>{title}</h2>
+        <span>Cada celda abre movimientos filtrados</span>
+      </div>
+      <div className="annual-table-scroll">
+        <table className="annual-table">
+          <thead>
+            <tr>
+              <th scope="col">Concepto</th>
+              {monthLabels.map((month) => (
+                <th scope="col" key={month}>
+                  {month}
+                </th>
+              ))}
+              <th scope="col">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                className={`annual-table__row annual-table__row--${row.tone}`}
+                key={row.key}
+              >
+                <th scope="row">
+                  {row.group ? <small>{row.group}</small> : null}
+                  <span>{row.label}</span>
+                </th>
+                {row.values.map((value, month) => (
+                  <td key={`${row.key}-${month}`}>
+                    <button
+                      className="annual-cell-button"
+                      onClick={() => {
+                        const target = row.targets[month];
+
+                        if (target) {
+                          onCellClick(target);
+                        }
+                      }}
+                      type="button"
+                    >
+                      {formatCompactMoney(value, currency)}
+                    </button>
+                  </td>
+                ))}
+                <td>
+                  <strong>{formatCompactMoney(row.total, currency)}</strong>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function IncomePanel({
+  annualError,
+  annualSummary,
+  isLoading,
+  onCellClick
+}: {
+  annualError: string | null;
+  annualSummary: AnnualControlSummary | null;
+  isLoading: boolean;
+  onCellClick: (target: AnnualCellTarget) => void;
+}) {
+  if (isLoading) {
+    return <p className="panel-status">Cargando ingresos reales...</p>;
+  }
+
+  if (annualError) {
+    return (
+      <AnnualStatus error={annualError} isLoading={false} onRetry={() => undefined} />
+    );
+  }
+
+  if (!annualSummary) {
+    return null;
+  }
+
+  return (
+    <section className="annual-section" aria-label="Ingresos">
+      <div className="section-heading">
+        <p className="eyebrow">Ingresos</p>
+        <h2>Fuentes del ano</h2>
+        <span>{formatMoney(annualSummary.annualIncome, annualSummary.currency)}</span>
+      </div>
+      <AnnualTable
+        currency={annualSummary.currency}
+        onCellClick={onCellClick}
+        rows={annualSummary.incomeRows}
+        title="Ingresos por fuente"
+      />
+    </section>
+  );
+}
+
+function ExpensesPanel({
+  annualError,
+  annualSummary,
+  isLoading,
+  onCellClick
+}: {
+  annualError: string | null;
+  annualSummary: AnnualControlSummary | null;
+  isLoading: boolean;
+  onCellClick: (target: AnnualCellTarget) => void;
+}) {
+  if (isLoading) {
+    return <p className="panel-status">Cargando gastos reales...</p>;
+  }
+
+  if (annualError) {
+    return (
+      <AnnualStatus error={annualError} isLoading={false} onRetry={() => undefined} />
+    );
+  }
+
+  if (!annualSummary) {
+    return null;
+  }
+
+  return (
+    <section className="annual-section" aria-label="Gastos">
+      <div className="section-heading">
+        <p className="eyebrow">Gastos</p>
+        <h2>Fijos y variables</h2>
+        <span>{formatMoney(annualSummary.annualExpenses, annualSummary.currency)}</span>
+      </div>
+      <AnnualTable
+        currency={annualSummary.currency}
+        onCellClick={onCellClick}
+        rows={annualSummary.expenseRows}
+        title="Gastos por categoria"
+      />
+    </section>
+  );
+}
+
+function VeramarPanel({
+  annualError,
+  annualSummary,
+  isLoading,
+  onCellClick
+}: {
+  annualError: string | null;
+  annualSummary: AnnualControlSummary | null;
+  isLoading: boolean;
+  onCellClick: (target: AnnualCellTarget) => void;
+}) {
+  if (isLoading) {
+    return <p className="panel-status">Cargando Veramar...</p>;
+  }
+
+  if (annualError) {
+    return (
+      <AnnualStatus error={annualError} isLoading={false} onRetry={() => undefined} />
+    );
+  }
+
+  if (!annualSummary) {
+    return null;
+  }
+
+  return (
+    <section className="annual-section" aria-label="Veramar">
+      <div className="section-heading">
+        <p className="eyebrow">Veramar</p>
+        <h2>Mini negocio</h2>
+        <span>
+          {formatMoney(annualSummary.veramar.totalBalance, annualSummary.currency)}
+        </span>
+      </div>
+      <section className="metric-grid annual-kpi-grid">
+        <MetricCard
+          label="Ingresos Booking"
+          tone="income"
+          value={formatMoney(annualSummary.veramar.totalIncome, annualSummary.currency)}
+        />
+        <MetricCard
+          label="Gastos Veramar"
+          tone="expense"
+          value={formatMoney(annualSummary.veramar.totalExpenses, annualSummary.currency)}
+        />
+        <MetricCard
+          label="Balance Veramar"
+          tone="balance"
+          value={formatMoney(annualSummary.veramar.totalBalance, annualSummary.currency)}
+        />
+      </section>
+      <AnnualTable
+        currency={annualSummary.currency}
+        onCellClick={onCellClick}
+        rows={[
+          {
+            key: 'veramar-income-total',
+            label: 'Ingresos Booking',
+            targets: annualSummary.veramar.monthlyIncome.map((_, month) => ({
+              month,
+              movementType: 'income',
+              search: 'booking',
+              year: annualSummary.year
+            })),
+            tone: 'income',
+            total: annualSummary.veramar.totalIncome,
+            values: annualSummary.veramar.monthlyIncome
+          },
+          {
+            key: 'veramar-expense-total',
+            label: 'Gastos Veramar',
+            targets: annualSummary.veramar.monthlyExpenses.map((_, month) => ({
+              month,
+              movementType: 'expense',
+              search: 'veramar',
+              year: annualSummary.year
+            })),
+            tone: 'expense',
+            total: annualSummary.veramar.totalExpenses,
+            values: annualSummary.veramar.monthlyExpenses
+          },
+          {
+            key: 'veramar-balance-total',
+            label: 'Balance Veramar',
+            targets: annualSummary.veramar.monthlyBalance.map((_, month) => ({
+              month,
+              movementType: 'all',
+              search: 'veramar',
+              year: annualSummary.year
+            })),
+            tone: 'balance',
+            total: annualSummary.veramar.totalBalance,
+            values: annualSummary.veramar.monthlyBalance
+          }
+        ]}
+        title="Resumen mensual Veramar"
+      />
+      <AnnualTable
+        currency={annualSummary.currency}
+        onCellClick={onCellClick}
+        rows={annualSummary.veramar.incomeRows}
+        title="Desglose de ingresos"
+      />
+      <AnnualTable
+        currency={annualSummary.currency}
+        onCellClick={onCellClick}
+        rows={annualSummary.veramar.expenseRows}
+        title="Desglose de gastos"
+      />
+    </section>
+  );
+}
+
+function SavingsPanel({
+  annualError,
+  annualSummary,
+  isLoading,
+  onCellClick
+}: {
+  annualError: string | null;
+  annualSummary: AnnualControlSummary | null;
+  isLoading: boolean;
+  onCellClick: (target: AnnualCellTarget) => void;
+}) {
+  if (isLoading) {
+    return <p className="panel-status">Cargando ahorro e inversion...</p>;
+  }
+
+  if (annualError) {
+    return (
+      <AnnualStatus error={annualError} isLoading={false} onRetry={() => undefined} />
+    );
+  }
+
+  if (!annualSummary) {
+    return null;
+  }
+
+  return (
+    <section className="annual-section" aria-label="Ahorro e inversion">
+      <div className="section-heading">
+        <p className="eyebrow">Ahorro / Inversion</p>
+        <h2>Construccion patrimonial</h2>
+        <span>Transferencias y plataformas</span>
+      </div>
+      <AnnualTable
+        currency={annualSummary.currency}
+        onCellClick={onCellClick}
+        rows={annualSummary.savings.destinationRows}
+        title="Resumen por destino"
+      />
+      <AnnualTable
+        currency={annualSummary.currency}
+        onCellClick={onCellClick}
+        rows={annualSummary.savings.platformRows}
+        title="Bloques por plataforma"
+      />
+      <section className="annual-table-card">
+        <div className="section-heading">
+          <p className="eyebrow">Transferencias</p>
+          <h2>Entre cuentas</h2>
+          <span>{annualSummary.savings.transferRows.length} movimientos</span>
+        </div>
+        {annualSummary.savings.transferRows.length > 0 ? (
+          <div className="transfer-list">
+            {annualSummary.savings.transferRows.map((transfer) => (
+              <article className="account-row" key={transfer.id}>
+                <div>
+                  <strong>
+                    {transfer.origin} a {transfer.destination}
+                  </strong>
+                  <span>
+                    {formatDate(transfer.date)} - {monthLabels[transfer.month]}
+                  </span>
+                </div>
+                <div>
+                  <strong>{formatMoney(transfer.amount, transfer.currency)}</strong>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state-card">
+            <span>Sin transferencias detectadas</span>
+            <p>Marca transferencias internas en Movimientos para verlas aqui.</p>
+          </div>
+        )}
+      </section>
+    </section>
+  );
+}
+
 type MovementsPanelProps = {
   error: string | null;
+  initialFilters: MovementFilters | null;
   isLoading: boolean;
   summary: DashboardSummary | null;
   onImportMovements: () => void;
@@ -655,6 +1271,7 @@ type MovementsPanelProps = {
 
 function MovementsPanel({
   error,
+  initialFilters,
   isLoading,
   onImportMovements,
   onRetry,
@@ -674,6 +1291,13 @@ function MovementsPanel({
   const [isSavingMovement, setIsSavingMovement] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const workspaceId = summary?.workspace.id;
+
+  useEffect(() => {
+    if (initialFilters) {
+      setFilters(initialFilters);
+      setPage(1);
+    }
+  }, [initialFilters]);
 
   useEffect(() => {
     if (!workspaceId) {
@@ -3340,11 +3964,12 @@ type MetricCardProps = {
   label: string;
   value: string;
   hint?: string;
+  tone?: 'income' | 'expense' | 'investment' | 'balance' | 'neutral';
 };
 
-function MetricCard({ hint, label, value }: MetricCardProps) {
+function MetricCard({ hint, label, tone = 'neutral', value }: MetricCardProps) {
   return (
-    <article className="metric-card">
+    <article className={`metric-card metric-card--${tone}`}>
       <span>{label}</span>
       <strong>{value}</strong>
       {hint ? <small>{hint}</small> : null}
@@ -3360,12 +3985,25 @@ function formatMoney(value: number, currency: string) {
   }).format(value);
 }
 
+function formatCompactMoney(value: number, currency: string) {
+  return new Intl.NumberFormat('es-ES', {
+    currency,
+    maximumFractionDigits: 0,
+    notation: Math.abs(value) >= 100000 ? 'compact' : 'standard',
+    style: 'currency'
+  }).format(value);
+}
+
 function formatDate(date: string) {
   return new Intl.DateTimeFormat('es-ES', {
     day: '2-digit',
     month: 'short',
     year: 'numeric'
   }).format(new Date(date));
+}
+
+function formatDateInput(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
 function formatPercentage(value: number) {
@@ -3421,6 +4059,17 @@ function getFinancialAccountLabel(account: FinancialAccount) {
   }
 
   return account.name;
+}
+
+function getContainerDisplayName(container: FinancialContainer) {
+  if (
+    container.institution &&
+    !container.name.toLowerCase().includes(container.institution.toLowerCase())
+  ) {
+    return `${container.institution} / ${container.name}`;
+  }
+
+  return container.name;
 }
 
 type TransactionDisplay = Pick<

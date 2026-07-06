@@ -387,6 +387,15 @@ h1 {
   overflow-y: auto;
 }
 
+.drawer-nav__label {
+  margin: 8px 4px 2px;
+  color: rgba(244, 239, 228, 0.42);
+  font-size: 0.68rem;
+  font-weight: 820;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .drawer-nav__item {
   display: grid;
   gap: 3px;
@@ -528,6 +537,194 @@ h1 {
 .metric-card small {
   color: var(--gold-soft);
   font-weight: 760;
+}
+
+.metric-card--income {
+  border-color: rgba(72, 187, 120, 0.28);
+  background: linear-gradient(
+    135deg,
+    rgba(72, 187, 120, 0.16),
+    rgba(244, 239, 228, 0.06)
+  );
+}
+
+.metric-card--expense {
+  border-color: rgba(229, 92, 104, 0.28);
+  background: linear-gradient(
+    135deg,
+    rgba(229, 92, 104, 0.16),
+    rgba(244, 239, 228, 0.06)
+  );
+}
+
+.metric-card--balance {
+  border-color: rgba(82, 144, 204, 0.3);
+  background: linear-gradient(
+    135deg,
+    rgba(82, 144, 204, 0.16),
+    rgba(244, 239, 228, 0.06)
+  );
+}
+
+.metric-card--investment {
+  border-color: rgba(211, 176, 85, 0.32);
+  background: linear-gradient(
+    135deg,
+    rgba(211, 176, 85, 0.18),
+    rgba(244, 239, 228, 0.06)
+  );
+}
+
+.annual-hero {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.annual-hero .eyebrow,
+.annual-hero p {
+  grid-column: 1 / -1;
+}
+
+.year-selector {
+  display: grid;
+  min-width: 112px;
+  gap: 6px;
+}
+
+.year-selector span {
+  color: rgba(244, 239, 228, 0.58);
+  font-size: 0.72rem;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.year-selector select {
+  min-height: 40px;
+  border: 1px solid rgba(244, 239, 228, 0.16);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--paper);
+  background: rgba(7, 12, 16, 0.72);
+  font: inherit;
+}
+
+.annual-section {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  animation: rise-in 640ms ease both 80ms;
+}
+
+.annual-table-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(244, 239, 228, 0.12);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(244, 239, 228, 0.07);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.annual-table-scroll {
+  overflow-x: auto;
+  border: 1px solid rgba(244, 239, 228, 0.09);
+  border-radius: 8px;
+}
+
+.annual-table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+  color: var(--paper);
+  font-size: 0.82rem;
+}
+
+.annual-table th,
+.annual-table td {
+  border-bottom: 1px solid rgba(244, 239, 228, 0.08);
+  padding: 10px 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.annual-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  color: rgba(244, 239, 228, 0.58);
+  background: rgba(7, 12, 16, 0.98);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.annual-table th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  width: 190px;
+  max-width: 190px;
+  text-align: left;
+  background: rgba(7, 12, 16, 0.98);
+}
+
+.annual-table tbody th span {
+  display: block;
+  overflow: hidden;
+  color: var(--paper);
+  text-overflow: ellipsis;
+}
+
+.annual-table tbody th small {
+  display: block;
+  margin-bottom: 3px;
+  color: rgba(244, 239, 228, 0.48);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.annual-cell-button {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 780;
+  text-align: right;
+}
+
+.annual-cell-button:hover,
+.annual-cell-button:focus-visible {
+  border-color: rgba(196, 161, 90, 0.38);
+  background: rgba(196, 161, 90, 0.12);
+}
+
+.annual-table__row--income .annual-cell-button,
+.annual-table__row--income td strong {
+  color: #78d79a;
+}
+
+.annual-table__row--expense .annual-cell-button,
+.annual-table__row--expense td strong {
+  color: #ff8f98;
+}
+
+.annual-table__row--balance .annual-cell-button,
+.annual-table__row--balance td strong {
+  color: #89bff0;
+}
+
+.annual-table__row--investment .annual-cell-button,
+.annual-table__row--investment td strong {
+  color: #e5c76f;
+}
+
+.transfer-list {
+  display: grid;
+  gap: 10px;
 }
 
 .import-entry-card {

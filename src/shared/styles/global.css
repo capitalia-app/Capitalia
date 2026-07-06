@@ -765,6 +765,46 @@ h1 {
   line-height: 1.45;
 }
 
+.asset-performance-summary small {
+  display: block;
+  max-width: 220px;
+  margin-top: 4px;
+  color: rgba(244, 239, 228, 0.58);
+  line-height: 1.35;
+}
+
+.asset-detail-modal {
+  gap: 16px;
+}
+
+.asset-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.asset-detail-list,
+.purchase-data-block {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(244, 239, 228, 0.06);
+}
+
+.asset-detail-list span,
+.purchase-data-block p {
+  margin: 0;
+  color: rgba(244, 239, 228, 0.62);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.purchase-data-block strong {
+  color: var(--paper);
+}
+
 .movement-filters {
   display: grid;
   gap: 10px;

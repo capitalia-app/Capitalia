@@ -36,6 +36,10 @@ export type PatrimonyAsset = {
   currency: string;
   quantity: number | null;
   manualValue: number;
+  purchasePrice: number | null;
+  averageCost: number | null;
+  totalCost: number | null;
+  purchaseDate: string | null;
   provider: string | null;
   notes: string | null;
 };
@@ -109,6 +113,10 @@ export type CreateStartingPointAssetInput = {
   value: number;
   currency: string;
   quantity?: number | null;
+  purchasePrice?: number | null;
+  averageCost?: number | null;
+  totalCost?: number | null;
+  purchaseDate?: string | null;
   notes?: string | null;
 };
 
@@ -166,6 +174,10 @@ type AssetRecord = {
   currency: string;
   quantity: number | string | null;
   manual_value: number | string | null;
+  purchase_price: number | string | null;
+  average_cost: number | string | null;
+  total_cost: number | string | null;
+  purchase_date: string | null;
   provider: string | null;
   notes: string | null;
 };
@@ -226,7 +238,7 @@ export async function listFinancialContainers(workspaceId: string) {
   const { data: assets, error: assetsError } = await supabase
     .from('assets')
     .select(
-      'id, container_id, name, asset_type, type, currency, quantity, manual_value, provider, notes'
+      'id, container_id, name, asset_type, type, currency, quantity, manual_value, purchase_price, average_cost, total_cost, purchase_date, provider, notes'
     )
     .eq('workspace_id', workspaceId)
     .is('deleted_at', null)
@@ -382,6 +394,10 @@ export async function createPatrimonialStartingPoint(input: CreateStartingPointI
         currency: asset.currency,
         name: asset.name,
         notes: asset.notes,
+        purchaseDate: asset.purchaseDate,
+        purchasePrice: asset.purchasePrice,
+        averageCost: asset.averageCost,
+        totalCost: asset.totalCost,
         platform,
         quantity: asset.quantity,
         type: mapAssetTypeToLegacyType(asset.assetType),
@@ -595,6 +611,10 @@ async function ensureAsset(input: {
   currency: string;
   value: number;
   quantity?: number | null;
+  purchasePrice?: number | null;
+  averageCost?: number | null;
+  totalCost?: number | null;
+  purchaseDate?: string | null;
   notes?: string | null;
 }) {
   if (!supabase) {
@@ -624,6 +644,10 @@ async function ensureAsset(input: {
       notes: normalizeOptionalText(input.notes),
       provider: normalizeOptionalText(input.platform),
       quantity: input.quantity ?? null,
+      purchase_price: input.purchasePrice ?? null,
+      average_cost: input.averageCost ?? null,
+      total_cost: input.totalCost ?? null,
+      purchase_date: normalizeOptionalText(input.purchaseDate),
       status: 'active',
       type: input.type,
       workspace_id: input.workspaceId
@@ -768,6 +792,10 @@ function mapAssetRecord(asset: AssetRecord) {
     name: asset.name,
     notes: asset.notes,
     provider: asset.provider,
+    purchaseDate: asset.purchase_date,
+    purchasePrice: asset.purchase_price === null ? null : Number(asset.purchase_price),
+    averageCost: asset.average_cost === null ? null : Number(asset.average_cost),
+    totalCost: asset.total_cost === null ? null : Number(asset.total_cost),
     quantity: asset.quantity === null ? null : Number(asset.quantity)
   } satisfies PatrimonyAsset;
 }

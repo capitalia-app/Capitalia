@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type Dispatch,
   type SetStateAction
@@ -631,6 +632,11 @@ function MovementsPanel({
   const totalPages = Math.max(1, Math.ceil(totalMovements / pageSize));
   const firstVisibleMovement = totalMovements === 0 ? 0 : (page - 1) * pageSize + 1;
   const lastVisibleMovement = Math.min(page * pageSize, totalMovements);
+  const movementsCounterLabel = getMovementsCounterLabel(
+    firstVisibleMovement,
+    lastVisibleMovement,
+    totalMovements
+  );
 
   async function loadMovementContext(workspaceId: string) {
     try {
@@ -706,13 +712,7 @@ function MovementsPanel({
       <div className="section-heading">
         <p className="eyebrow">Flujo de dinero</p>
         <h2>Movimientos</h2>
-        <span>
-          {getMovementsCounterLabel(
-            firstVisibleMovement,
-            lastVisibleMovement,
-            totalMovements
-          )}
-        </span>
+        <span>{movementsCounterLabel}</span>
       </div>
 
       {localError ? (
@@ -723,6 +723,7 @@ function MovementsPanel({
         accounts={accounts}
         categories={categories}
         filters={filters}
+        resultLabel={movementsCounterLabel}
         onChange={(nextFilters) => {
           setPage(1);
           setFilters(nextFilters);
@@ -842,98 +843,198 @@ function MovementFiltersPanel({
   accounts,
   categories,
   filters,
-  onChange
+  onChange,
+  resultLabel
 }: {
   accounts: FinancialAccount[];
   categories: TransactionCategory[];
   filters: MovementFilters;
   onChange: Dispatch<SetStateAction<MovementFilters>>;
+  resultLabel: string;
 }) {
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+  const [draftFilters, setDraftFilters] = useState<MovementFilters>(filters);
+  const activeAdvancedFilters = isFilterSheetOpen ? draftFilters : filters;
+
+  useEffect(() => {
+    if (isFilterSheetOpen) {
+      setDraftFilters(filters);
+    }
+  }, [filters, isFilterSheetOpen]);
+
+  useEffect(() => {
+    if (!isFilterSheetOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isFilterSheetOpen]);
+
+  function updateSearch(search: string) {
+    onChange((current) => ({ ...current, search }));
+  }
+
+  function updateAdvancedFilter(patch: Partial<MovementFilters>) {
+    if (isFilterSheetOpen) {
+      setDraftFilters((current) => ({ ...current, ...patch }));
+      return;
+    }
+
+    onChange((current) => ({ ...current, ...patch }));
+  }
+
+  function clearAdvancedFilters() {
+    const clearedFilters = {
+      ...defaultMovementFilters,
+      search: filters.search
+    };
+
+    if (isFilterSheetOpen) {
+      setDraftFilters(clearedFilters);
+      return;
+    }
+
+    onChange(clearedFilters);
+  }
+
+  function applyDraftFilters() {
+    onChange(draftFilters);
+    setIsFilterSheetOpen(false);
+  }
+
   return (
-    <section className="movement-filters" aria-label="Filtros de movimientos">
-      <label>
-        <span>Buscar</span>
-        <input
-          onChange={(event) =>
-            onChange((current) => ({ ...current, search: event.target.value }))
-          }
-          placeholder="Descripcion"
-          type="search"
-          value={filters.search}
+    <section
+      className={
+        isFilterSheetOpen ? 'movement-filters movement-filters--open' : 'movement-filters'
+      }
+      aria-label="Filtros de movimientos"
+    >
+      <div className="movement-filters__compact">
+        <label>
+          <span>Buscar</span>
+          <input
+            onChange={(event) => updateSearch(event.target.value)}
+            placeholder="Descripcion"
+            type="search"
+            value={filters.search}
+          />
+        </label>
+        <button
+          className="movement-filter-button"
+          onClick={() => setIsFilterSheetOpen(true)}
+          type="button"
+        >
+          Filtros
+        </button>
+        <span className="movement-filters__counter">{resultLabel}</span>
+      </div>
+
+      {isFilterSheetOpen ? (
+        <button
+          aria-label="Cerrar filtros"
+          className="movement-filters__backdrop"
+          onClick={() => setIsFilterSheetOpen(false)}
+          type="button"
         />
-      </label>
-      <label>
-        <span>Tipo</span>
-        <select
-          onChange={(event) =>
-            onChange((current) => ({
-              ...current,
-              movementType: event.target.value as MovementReviewFilter
-            }))
-          }
-          value={filters.movementType}
-        >
-          <option value="all">Todos</option>
-          <option value="income">Ingresos</option>
-          <option value="expense">Gastos reales</option>
-          <option value="investment">Inversiones</option>
-          <option value="transfer">Transferencias</option>
-          <option value="pending">Pendientes de revisar</option>
-        </select>
-      </label>
-      <label>
-        <span>Cuenta / plataforma</span>
-        <select
-          onChange={(event) =>
-            onChange((current) => ({ ...current, accountId: event.target.value }))
-          }
-          value={filters.accountId}
-        >
-          <option value="">Todas</option>
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {getFinancialAccountLabel(account)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>Categoria</span>
-        <select
-          onChange={(event) =>
-            onChange((current) => ({ ...current, categoryId: event.target.value }))
-          }
-          value={filters.categoryId}
-        >
-          <option value="">Todas</option>
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="account-form__grid">
+      ) : null}
+
+      <div className="movement-filters__advanced">
+        <div className="movement-filters__sheet-header">
+          <div>
+            <p className="eyebrow">Filtros</p>
+            <strong>Refinar movimientos</strong>
+          </div>
+          <button
+            aria-label="Cerrar filtros"
+            className="text-link movement-filters__close"
+            onClick={() => setIsFilterSheetOpen(false)}
+            type="button"
+          >
+            X
+          </button>
+        </div>
         <label>
-          <span>Desde</span>
-          <input
+          <span>Tipo</span>
+          <select
             onChange={(event) =>
-              onChange((current) => ({ ...current, dateFrom: event.target.value }))
+              updateAdvancedFilter({
+                movementType: event.target.value as MovementReviewFilter
+              })
             }
-            type="date"
-            value={filters.dateFrom}
-          />
+            value={activeAdvancedFilters.movementType}
+          >
+            <option value="all">Todos</option>
+            <option value="income">Ingresos</option>
+            <option value="expense">Gastos reales</option>
+            <option value="investment">Inversiones</option>
+            <option value="transfer">Transferencias</option>
+            <option value="pending">Pendientes de revisar</option>
+          </select>
         </label>
         <label>
-          <span>Hasta</span>
-          <input
-            onChange={(event) =>
-              onChange((current) => ({ ...current, dateTo: event.target.value }))
-            }
-            type="date"
-            value={filters.dateTo}
-          />
+          <span>Cuenta / plataforma</span>
+          <select
+            onChange={(event) => updateAdvancedFilter({ accountId: event.target.value })}
+            value={activeAdvancedFilters.accountId}
+          >
+            <option value="">Todas</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {getFinancialAccountLabel(account)}
+              </option>
+            ))}
+          </select>
         </label>
+        <label>
+          <span>Categoria</span>
+          <select
+            onChange={(event) => updateAdvancedFilter({ categoryId: event.target.value })}
+            value={activeAdvancedFilters.categoryId}
+          >
+            <option value="">Todas</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="account-form__grid">
+          <label>
+            <span>Desde</span>
+            <input
+              onChange={(event) => updateAdvancedFilter({ dateFrom: event.target.value })}
+              type="date"
+              value={activeAdvancedFilters.dateFrom}
+            />
+          </label>
+          <label>
+            <span>Hasta</span>
+            <input
+              onChange={(event) => updateAdvancedFilter({ dateTo: event.target.value })}
+              type="date"
+              value={activeAdvancedFilters.dateTo}
+            />
+          </label>
+        </div>
+        <div className="movement-filters__actions">
+          <button className="text-link" onClick={clearAdvancedFilters} type="button">
+            Limpiar filtros
+          </button>
+          <button
+            className="danger-button movement-filters__apply"
+            onClick={applyDraftFilters}
+            type="button"
+          >
+            Aplicar filtros
+          </button>
+        </div>
       </div>
     </section>
   );
@@ -1011,19 +1112,42 @@ function MovementEditorModal({
   onSave: () => void;
   setEditState: Dispatch<SetStateAction<MovementEditState | null>>;
 }) {
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const matchingCategories = categories.filter(
     (category) => category.movementType === editState.movementType
   );
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+    contentRef.current?.scrollTo({ top: 0 });
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="danger-modal movement-editor" role="dialog" aria-modal="true">
-        <div className="section-heading">
-          <p className="eyebrow">Movimiento</p>
-          <h2>Revisar</h2>
-          <span>{movement.description}</span>
+        <div className="section-heading movement-editor__header">
+          <div>
+            <p className="eyebrow">Movimiento</p>
+            <h2>Revisar</h2>
+            <span>{movement.description}</span>
+          </div>
+          <button
+            aria-label="Cerrar revision"
+            className="movement-editor__close"
+            disabled={isSaving}
+            onClick={onClose}
+            type="button"
+          >
+            X
+          </button>
         </div>
-        <div className="account-form">
+        <div className="account-form movement-editor__content" ref={contentRef}>
           <label>
             <span>Tipo</span>
             <select

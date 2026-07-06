@@ -264,23 +264,25 @@ export function AuthenticatedDashboard({
 
   return (
     <ExperienceFrame className="dashboard-screen">
-      <header className="app-header">
-        <button
-          aria-expanded={isMenuOpen}
-          aria-label="Abrir menu"
-          className="hamburger-button"
-          onClick={() => setIsMenuOpen(true)}
-          type="button"
-        >
-          <span />
-          <span />
-          <span />
-        </button>
-        <BrandMark />
-        <div className="dashboard-session">
-          {userEmail ? <span>Sesion activa: {userEmail}</span> : null}
-        </div>
-      </header>
+      {!isMenuOpen ? (
+        <header className="app-header">
+          <button
+            aria-expanded={isMenuOpen}
+            aria-label="Abrir menu"
+            className="hamburger-button"
+            onClick={() => setIsMenuOpen(true)}
+            type="button"
+          >
+            <span />
+            <span />
+            <span />
+          </button>
+          <BrandMark />
+          <div className="dashboard-session">
+            {userEmail ? <span>Sesion activa: {userEmail}</span> : null}
+          </div>
+        </header>
+      ) : null}
 
       <NavigationDrawer
         activeSection={activeSection}

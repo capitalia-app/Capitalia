@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type ReactNode,
   type SetStateAction
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -373,6 +374,91 @@ function NavigationDrawer({
   );
 }
 
+function AppModal({
+  children,
+  className = '',
+  contentClassName = '',
+  eyebrow,
+  footer,
+  onClose,
+  subtitle,
+  title,
+  closeLabel = 'Cerrar modal'
+}: {
+  children: ReactNode;
+  className?: string;
+  contentClassName?: string;
+  eyebrow?: string;
+  footer?: ReactNode;
+  onClose: () => void;
+  subtitle?: ReactNode;
+  title: ReactNode;
+  closeLabel?: string;
+}) {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const animationFrame = window.requestAnimationFrame(() => {
+      contentRef.current?.scrollTo({ top: 0 });
+    });
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    }
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
+  const modal = (
+    <div className="app-modal-backdrop" role="presentation">
+      <section
+        className={className ? `app-modal ${className}` : 'app-modal'}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="app-modal__header">
+          <div>
+            {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
+            <h2>{title}</h2>
+            {subtitle ? <span>{subtitle}</span> : null}
+          </div>
+          <button
+            aria-label={closeLabel}
+            className="app-modal__close"
+            onClick={onClose}
+            type="button"
+          >
+            X
+          </button>
+        </div>
+        <div
+          className={
+            contentClassName
+              ? `app-modal__content ${contentClassName}`
+              : 'app-modal__content'
+          }
+          ref={contentRef}
+        >
+          {children}
+        </div>
+        {footer ? <div className="app-modal__footer">{footer}</div> : null}
+      </section>
+    </div>
+  );
+
+  return createPortal(modal, document.body);
+}
+
 type HomePanelProps = {
   error: string | null;
   isLoading: boolean;
@@ -536,8 +622,11 @@ function HomePanel({
                     {transaction.direction === 'inflow' ? '+' : '-'}
                     {formatMoney(transaction.amount, transaction.currency)}
                   </strong>
-                  <small>{getMovementTypeLabel(transaction.movementType)}</small>
-                  <small>{transaction.categoryName ?? transaction.accountName}</small>
+                  <div className="transaction-meta-chips">
+                    <small>{getMovementTypeLabel(transaction.movementType)}</small>
+                    <small>{transaction.categoryName ?? 'Sin categoria'}</small>
+                    <small>{transaction.accountName}</small>
+                  </div>
                 </div>
               </article>
             ))}
@@ -1041,53 +1130,13 @@ function MovementFiltersModal({
   onClear: () => void;
   onClose: () => void;
 }) {
-  const contentRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    const animationFrame = window.requestAnimationFrame(() => {
-      contentRef.current?.scrollTo({ top: 0 });
-    });
-
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      document.body.style.overflow = previousOverflow;
-    };
-  }, []);
-
-  const modal = (
-    <div className="movement-filter-modal-backdrop" role="presentation">
-      <section
-        className="movement-filter-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Filtros de movimientos"
-      >
-        <div className="movement-filter-modal__header">
-          <div>
-            <p className="eyebrow">Filtros</p>
-            <strong>Refinar movimientos</strong>
-          </div>
-          <button
-            aria-label="Cerrar filtros"
-            className="movement-editor__close"
-            onClick={onClose}
-            type="button"
-          >
-            X
-          </button>
-        </div>
-        <div className="movement-filter-modal__content" ref={contentRef}>
-          <MovementAdvancedFilters
-            accounts={accounts}
-            categories={categories}
-            filters={draftFilters}
-            onChange={onChange}
-          />
-        </div>
-        <div className="movement-filter-modal__footer">
+  return (
+    <AppModal
+      className="movement-filter-modal"
+      closeLabel="Cerrar filtros"
+      eyebrow="Filtros"
+      footer={
+        <>
           <button className="text-link" onClick={onClear} type="button">
             Limpiar filtros
           </button>
@@ -1098,12 +1147,19 @@ function MovementFiltersModal({
           >
             Aplicar filtros
           </button>
-        </div>
-      </section>
-    </div>
+        </>
+      }
+      onClose={onClose}
+      title="Refinar movimientos"
+    >
+      <MovementAdvancedFilters
+        accounts={accounts}
+        categories={categories}
+        filters={draftFilters}
+        onChange={onChange}
+      />
+    </AppModal>
   );
-
-  return createPortal(modal, document.body);
 }
 
 function MovementPagination({
@@ -1178,163 +1234,18 @@ function MovementEditorModal({
   onSave: () => void;
   setEditState: Dispatch<SetStateAction<MovementEditState | null>>;
 }) {
-  const contentRef = useRef<HTMLDivElement | null>(null);
   const matchingCategories = categories.filter(
     (category) => category.movementType === editState.movementType
   );
 
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    const animationFrame = window.requestAnimationFrame(() => {
-      contentRef.current?.scrollTo({ top: 0 });
-    });
-
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [movement.id]);
-
-  const modal = (
-    <div className="modal-backdrop movement-editor-backdrop" role="presentation">
-      <section className="danger-modal movement-editor" role="dialog" aria-modal="true">
-        <div className="section-heading movement-editor__header">
-          <div>
-            <p className="eyebrow">Movimiento</p>
-            <h2>Revisar</h2>
-            <span>{movement.description}</span>
-          </div>
-          <button
-            aria-label="Cerrar revision"
-            className="movement-editor__close"
-            disabled={isSaving}
-            onClick={onClose}
-            type="button"
-          >
-            X
-          </button>
-        </div>
-        <div className="account-form movement-editor__content" ref={contentRef}>
-          <label>
-            <span>Tipo</span>
-            <select
-              onChange={(event) =>
-                setEditState((current) =>
-                  current
-                    ? {
-                        ...current,
-                        categoryId: '',
-                        movementType: event.target.value as MovementType
-                      }
-                    : current
-                )
-              }
-              value={editState.movementType}
-            >
-              <option value="income">Ingreso</option>
-              <option value="expense">Gasto real</option>
-              <option value="investment">Inversion</option>
-              <option value="transfer">Transferencia interna</option>
-            </select>
-          </label>
-          <label>
-            <span>Categoria</span>
-            <select
-              onChange={(event) =>
-                setEditState((current) =>
-                  current ? { ...current, categoryId: event.target.value } : current
-                )
-              }
-              value={editState.categoryId}
-            >
-              <option value="">Sin categoria</option>
-              {matchingCategories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Cuenta / plataforma</span>
-            <select
-              onChange={(event) =>
-                setEditState((current) =>
-                  current ? { ...current, accountId: event.target.value } : current
-                )
-              }
-              value={editState.accountId}
-            >
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {getFinancialAccountLabel(account)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Notas</span>
-            <textarea
-              onChange={(event) =>
-                setEditState((current) =>
-                  current ? { ...current, notes: event.target.value } : current
-                )
-              }
-              value={editState.notes}
-            />
-          </label>
-          <div className="movement-editor__checks">
-            <label className="remember-rule">
-              <input
-                checked={editState.isReviewed}
-                onChange={(event) =>
-                  setEditState((current) =>
-                    current ? { ...current, isReviewed: event.target.checked } : current
-                  )
-                }
-                type="checkbox"
-              />
-              <span>Marcar como revisado</span>
-            </label>
-            <label className="remember-rule">
-              <input
-                checked={editState.movementType === 'transfer'}
-                onChange={(event) =>
-                  setEditState((current) =>
-                    current
-                      ? {
-                          ...current,
-                          categoryId: '',
-                          movementType: event.target.checked
-                            ? 'transfer'
-                            : current.movementType === 'transfer'
-                              ? 'expense'
-                              : current.movementType
-                        }
-                      : current
-                  )
-                }
-                type="checkbox"
-              />
-              <span>Transferencia interna</span>
-            </label>
-            <label className="remember-rule">
-              <input
-                checked={editState.rememberRule}
-                onChange={(event) =>
-                  setEditState((current) =>
-                    current ? { ...current, rememberRule: event.target.checked } : current
-                  )
-                }
-                type="checkbox"
-              />
-              <span>Guardar y recordar regla</span>
-            </label>
-          </div>
-        </div>
-        <div className="account-form__actions">
+  return (
+    <AppModal
+      className="movement-editor"
+      closeLabel="Cerrar revision"
+      contentClassName="account-form movement-editor__content"
+      eyebrow="Movimiento"
+      footer={
+        <>
           <button
             className="text-link"
             disabled={isSaving}
@@ -1351,12 +1262,130 @@ function MovementEditorModal({
           >
             {isSaving ? 'Guardando...' : 'Guardar'}
           </button>
-        </div>
-      </section>
-    </div>
+        </>
+      }
+      onClose={onClose}
+      subtitle={movement.description}
+      title="Revisar"
+    >
+      <label>
+        <span>Tipo</span>
+        <select
+          onChange={(event) =>
+            setEditState((current) =>
+              current
+                ? {
+                    ...current,
+                    categoryId: '',
+                    movementType: event.target.value as MovementType
+                  }
+                : current
+            )
+          }
+          value={editState.movementType}
+        >
+          <option value="income">Ingreso</option>
+          <option value="expense">Gasto real</option>
+          <option value="investment">Inversion</option>
+          <option value="transfer">Transferencia interna</option>
+        </select>
+      </label>
+      <label>
+        <span>Categoria</span>
+        <select
+          onChange={(event) =>
+            setEditState((current) =>
+              current ? { ...current, categoryId: event.target.value } : current
+            )
+          }
+          value={editState.categoryId}
+        >
+          <option value="">Sin categoria</option>
+          {matchingCategories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Cuenta / plataforma</span>
+        <select
+          onChange={(event) =>
+            setEditState((current) =>
+              current ? { ...current, accountId: event.target.value } : current
+            )
+          }
+          value={editState.accountId}
+        >
+          {accounts.map((account) => (
+            <option key={account.id} value={account.id}>
+              {getFinancialAccountLabel(account)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Notas</span>
+        <textarea
+          onChange={(event) =>
+            setEditState((current) =>
+              current ? { ...current, notes: event.target.value } : current
+            )
+          }
+          value={editState.notes}
+        />
+      </label>
+      <div className="movement-editor__checks">
+        <label className="remember-rule">
+          <input
+            checked={editState.isReviewed}
+            onChange={(event) =>
+              setEditState((current) =>
+                current ? { ...current, isReviewed: event.target.checked } : current
+              )
+            }
+            type="checkbox"
+          />
+          <span>Marcar como revisado</span>
+        </label>
+        <label className="remember-rule">
+          <input
+            checked={editState.movementType === 'transfer'}
+            onChange={(event) =>
+              setEditState((current) =>
+                current
+                  ? {
+                      ...current,
+                      categoryId: '',
+                      movementType: event.target.checked
+                        ? 'transfer'
+                        : current.movementType === 'transfer'
+                          ? 'expense'
+                          : current.movementType
+                    }
+                  : current
+              )
+            }
+            type="checkbox"
+          />
+          <span>Transferencia interna</span>
+        </label>
+        <label className="remember-rule">
+          <input
+            checked={editState.rememberRule}
+            onChange={(event) =>
+              setEditState((current) =>
+                current ? { ...current, rememberRule: event.target.checked } : current
+              )
+            }
+            type="checkbox"
+          />
+          <span>Guardar y recordar regla</span>
+        </label>
+      </div>
+    </AppModal>
   );
-
-  return createPortal(modal, document.body);
 }
 
 type CategoriesPanelProps = {
@@ -1948,73 +1977,65 @@ function AssetDetailsModal({
   const performance = getAssetPerformance(asset);
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section
-        className="danger-modal asset-detail-modal"
-        role="dialog"
-        aria-modal="true"
-      >
-        <div className="section-heading">
-          <p className="eyebrow">Activo</p>
-          <h2>{asset.name}</h2>
-          <span>
-            {asset.provider ?? 'Sin plataforma'} - {getAssetTypeLabel(asset.assetType)}
-          </span>
-        </div>
+    <AppModal
+      className="asset-detail-modal"
+      closeLabel="Cerrar detalle de activo"
+      eyebrow="Activo"
+      footer={
+        <button className="text-link" onClick={onClose} type="button">
+          Cerrar
+        </button>
+      }
+      onClose={onClose}
+      subtitle={`${asset.provider ?? 'Sin plataforma'} - ${getAssetTypeLabel(asset.assetType)}`}
+      title={asset.name}
+    >
+      <div className="asset-detail-grid">
+        <MetricCard
+          label="Valor actual"
+          value={formatMoney(asset.manualValue, asset.currency)}
+        />
+        <MetricCard
+          label="Coste total"
+          value={
+            performance.totalCost === null
+              ? 'Coste no informado'
+              : formatMoney(performance.totalCost, asset.currency)
+          }
+        />
+        <MetricCard
+          label="Beneficio"
+          value={
+            performance.profit === null
+              ? 'Coste no informado'
+              : formatMoney(performance.profit, asset.currency)
+          }
+        />
+        <MetricCard
+          label="Rentabilidad"
+          value={
+            performance.returnPercentage === null
+              ? 'Coste no informado'
+              : formatPercentage(performance.returnPercentage)
+          }
+        />
+      </div>
 
-        <div className="asset-detail-grid">
-          <MetricCard
-            label="Valor actual"
-            value={formatMoney(asset.manualValue, asset.currency)}
-          />
-          <MetricCard
-            label="Coste total"
-            value={
-              performance.totalCost === null
-                ? 'Coste no informado'
-                : formatMoney(performance.totalCost, asset.currency)
-            }
-          />
-          <MetricCard
-            label="Beneficio"
-            value={
-              performance.profit === null
-                ? 'Coste no informado'
-                : formatMoney(performance.profit, asset.currency)
-            }
-          />
-          <MetricCard
-            label="Rentabilidad"
-            value={
-              performance.returnPercentage === null
-                ? 'Coste no informado'
-                : formatPercentage(performance.returnPercentage)
-            }
-          />
-        </div>
-
-        <div className="asset-detail-list">
-          <span>Cantidad: {asset.quantity ?? 'No informada'}</span>
-          <span>
-            Precio medio:{' '}
-            {asset.averageCost === null
-              ? 'No informado'
-              : formatMoney(asset.averageCost, asset.currency)}
-          </span>
-          <span>
-            Fecha de compra:{' '}
-            {asset.purchaseDate ? formatDate(asset.purchaseDate) : 'No informada'}
-          </span>
-          <span>Notas: {asset.notes ?? 'Sin notas'}</span>
-        </div>
-
-        <div className="account-form__actions">
-          <button className="text-link" onClick={onClose} type="button">
-            Cerrar
-          </button>
-        </div>
-      </section>
-    </div>
+      <div className="asset-detail-list">
+        <span>Cantidad: {asset.quantity ?? 'No informada'}</span>
+        <span>
+          Precio medio:{' '}
+          {asset.averageCost === null
+            ? 'No informado'
+            : formatMoney(asset.averageCost, asset.currency)}
+        </span>
+        <span>
+          Fecha de compra:{' '}
+          {asset.purchaseDate ? formatDate(asset.purchaseDate) : 'No informada'}
+        </span>
+        <span>Notas: {asset.notes ?? 'Sin notas'}</span>
+      </div>
+    </AppModal>
   );
 }
 
@@ -3077,25 +3098,12 @@ function SettingsPanel({
       </section>
 
       {isModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="danger-modal" role="dialog" aria-modal="true">
-            <div className="section-heading">
-              <p className="eyebrow">Confirmacion</p>
-              <h2>Reset financiero</h2>
-              <span>Esta accion no borra tu usuario ni workspace.</span>
-            </div>
-            <p>
-              Se borraran movimientos, balances, cuentas financieras, reglas
-              personalizadas, activos, precios y snapshots. Para confirmar, escribe
-              exactamente RESET CAPITALIA.
-            </p>
-            <input
-              onChange={(event) => setConfirmation(event.target.value)}
-              placeholder="RESET CAPITALIA"
-              type="text"
-              value={confirmation}
-            />
-            <div className="account-form__actions">
+        <AppModal
+          className="danger-modal"
+          closeLabel="Cerrar reset financiero"
+          eyebrow="Confirmacion"
+          footer={
+            <>
               <button
                 className="text-link"
                 disabled={isResetting}
@@ -3112,31 +3120,33 @@ function SettingsPanel({
               >
                 {isResetting ? 'Reseteando...' : 'Confirmar reset'}
               </button>
-            </div>
-          </section>
-        </div>
+            </>
+          }
+          onClose={() => setIsModalOpen(false)}
+          subtitle="Esta accion no borra tu usuario ni workspace."
+          title="Reset financiero"
+        >
+          <p>
+            Se borraran movimientos, balances, cuentas financieras, reglas personalizadas,
+            activos, precios y snapshots. Para confirmar, escribe exactamente RESET
+            CAPITALIA.
+          </p>
+          <input
+            onChange={(event) => setConfirmation(event.target.value)}
+            placeholder="RESET CAPITALIA"
+            type="text"
+            value={confirmation}
+          />
+        </AppModal>
       ) : null}
 
       {isRedoModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="danger-modal" role="dialog" aria-modal="true">
-            <div className="section-heading">
-              <p className="eyebrow">Punto de partida</p>
-              <h2>Rehacer configuracion</h2>
-              <span>No borra movimientos ni categorias.</span>
-            </div>
-            <p>
-              Se borraran solo los registros del snapshot inicial. Las cuentas y activos
-              creados seguiran disponibles hasta el reset financiero completo. Para
-              confirmar, escribe exactamente REHACER PUNTO.
-            </p>
-            <input
-              onChange={(event) => setRedoConfirmation(event.target.value)}
-              placeholder="REHACER PUNTO"
-              type="text"
-              value={redoConfirmation}
-            />
-            <div className="account-form__actions">
+        <AppModal
+          className="danger-modal"
+          closeLabel="Cerrar rehacer punto de partida"
+          eyebrow="Punto de partida"
+          footer={
+            <>
               <button
                 className="text-link"
                 disabled={isRedoingSnapshot}
@@ -3153,9 +3163,24 @@ function SettingsPanel({
               >
                 {isRedoingSnapshot ? 'Preparando...' : 'Rehacer punto'}
               </button>
-            </div>
-          </section>
-        </div>
+            </>
+          }
+          onClose={() => setIsRedoModalOpen(false)}
+          subtitle="No borra movimientos ni categorias."
+          title="Rehacer configuracion"
+        >
+          <p>
+            Se borraran solo los registros del snapshot inicial. Las cuentas y activos
+            creados seguiran disponibles hasta el reset financiero completo. Para
+            confirmar, escribe exactamente REHACER PUNTO.
+          </p>
+          <input
+            onChange={(event) => setRedoConfirmation(event.target.value)}
+            placeholder="REHACER PUNTO"
+            type="text"
+            value={redoConfirmation}
+          />
+        </AppModal>
       ) : null}
     </section>
   );

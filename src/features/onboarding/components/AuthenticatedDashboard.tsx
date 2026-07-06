@@ -574,7 +574,9 @@ function MovementsPanel({
   const [filters, setFilters] = useState<MovementFilters>(defaultMovementFilters);
   const [selectedMovement, setSelectedMovement] = useState<MoneyMovement | null>(null);
   const [editState, setEditState] = useState<MovementEditState | null>(null);
-  const [hasMore, setHasMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(getDefaultMovementsPageSize);
+  const [totalMovements, setTotalMovements] = useState(0);
   const [isLoadingMovements, setIsLoadingMovements] = useState(false);
   const [isSavingMovement, setIsSavingMovement] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -591,45 +593,44 @@ function MovementsPanel({
     void loadMovementContext(workspaceId);
   }, [workspaceId]);
 
-  const loadMovementPage = useCallback(
-    async (mode: 'reset' | 'append', offset = 0) => {
-      if (!workspaceId) {
-        return;
-      }
+  const loadMovementPage = useCallback(async () => {
+    if (!workspaceId) {
+      return;
+    }
 
-      setIsLoadingMovements(true);
-      setLocalError(null);
+    setIsLoadingMovements(true);
+    setLocalError(null);
 
-      try {
-        const result = await listMovements({
-          accounts,
-          categories,
-          filters,
-          limit: 50,
-          offset,
-          workspaceId
-        });
+    try {
+      const result = await listMovements({
+        accounts,
+        categories,
+        filters,
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+        workspaceId
+      });
 
-        setMovements((current) =>
-          mode === 'append' ? [...current, ...result.movements] : result.movements
-        );
-        setHasMore(result.hasMore);
-      } catch (movementError) {
-        setLocalError(getErrorMessage(movementError));
-      } finally {
-        setIsLoadingMovements(false);
-      }
-    },
-    [accounts, categories, filters, workspaceId]
-  );
+      setMovements(result.movements);
+      setTotalMovements(result.total);
+    } catch (movementError) {
+      setLocalError(getErrorMessage(movementError));
+    } finally {
+      setIsLoadingMovements(false);
+    }
+  }, [accounts, categories, filters, page, pageSize, workspaceId]);
 
   useEffect(() => {
     if (!workspaceId || accounts.length === 0) {
       return;
     }
 
-    void loadMovementPage('reset');
+    void loadMovementPage();
   }, [accounts.length, loadMovementPage, workspaceId]);
+
+  const totalPages = Math.max(1, Math.ceil(totalMovements / pageSize));
+  const firstVisibleMovement = totalMovements === 0 ? 0 : (page - 1) * pageSize + 1;
+  const lastVisibleMovement = Math.min(page * pageSize, totalMovements);
 
   async function loadMovementContext(workspaceId: string) {
     try {
@@ -675,7 +676,7 @@ function MovementsPanel({
       });
       setSelectedMovement(null);
       setEditState(null);
-      await loadMovementPage('reset');
+      await loadMovementPage();
       onUpdated();
     } catch (saveError) {
       setLocalError(getErrorMessage(saveError));
@@ -706,7 +707,11 @@ function MovementsPanel({
         <p className="eyebrow">Flujo de dinero</p>
         <h2>Movimientos</h2>
         <span>
-          {movements.length > 0 ? `${movements.length} cargados` : 'Sin movimientos'}
+          {getMovementsCounterLabel(
+            firstVisibleMovement,
+            lastVisibleMovement,
+            totalMovements
+          )}
         </span>
       </div>
 
@@ -718,7 +723,10 @@ function MovementsPanel({
         accounts={accounts}
         categories={categories}
         filters={filters}
-        onChange={setFilters}
+        onChange={(nextFilters) => {
+          setPage(1);
+          setFilters(nextFilters);
+        }}
       />
 
       {isLoadingMovements && movements.length === 0 ? (
@@ -754,16 +762,18 @@ function MovementsPanel({
             ))}
           </div>
 
-          {hasMore ? (
-            <button
-              className="text-link"
-              disabled={isLoadingMovements}
-              onClick={() => void loadMovementPage('append', movements.length)}
-              type="button"
-            >
-              {isLoadingMovements ? 'Cargando...' : 'Cargar mas'}
-            </button>
-          ) : null}
+          <MovementPagination
+            isLoading={isLoadingMovements}
+            onPageChange={setPage}
+            onPageSizeChange={(nextPageSize) => {
+              setPage(1);
+              setPageSize(nextPageSize);
+            }}
+            page={page}
+            pageSize={pageSize}
+            totalPages={totalPages}
+            total={totalMovements}
+          />
         </>
       ) : (
         <div className="empty-state-card">
@@ -811,6 +821,22 @@ const defaultMovementFilters = {
   movementType: 'all',
   search: ''
 } satisfies MovementFilters;
+
+function getDefaultMovementsPageSize() {
+  if (typeof window !== 'undefined' && window.matchMedia('(min-width: 760px)').matches) {
+    return 20;
+  }
+
+  return 10;
+}
+
+function getMovementsCounterLabel(first: number, last: number, total: number) {
+  if (total === 0) {
+    return 'Sin movimientos';
+  }
+
+  return `Mostrando ${first}-${last} de ${total}`;
+}
 
 function MovementFiltersPanel({
   accounts,
@@ -910,6 +936,59 @@ function MovementFiltersPanel({
         </label>
       </div>
     </section>
+  );
+}
+
+function MovementPagination({
+  isLoading,
+  onPageChange,
+  onPageSizeChange,
+  page,
+  pageSize,
+  total,
+  totalPages
+}: {
+  isLoading: boolean;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}) {
+  return (
+    <nav className="movement-pagination" aria-label="Paginacion de movimientos">
+      <button
+        className="text-link"
+        disabled={isLoading || page <= 1}
+        onClick={() => onPageChange(Math.max(1, page - 1))}
+        type="button"
+      >
+        Anterior
+      </button>
+      <span>
+        Pagina {page} de {totalPages}
+      </span>
+      <button
+        className="text-link"
+        disabled={isLoading || page >= totalPages || total === 0}
+        onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+        type="button"
+      >
+        Siguiente
+      </button>
+      <label>
+        <span>Por pagina</span>
+        <select
+          onChange={(event) => onPageSizeChange(Number(event.target.value))}
+          value={pageSize}
+        >
+          <option value={10}>10</option>
+          <option value={20}>20</option>
+          <option value={50}>50</option>
+        </select>
+      </label>
+    </nav>
   );
 }
 
@@ -1013,52 +1092,54 @@ function MovementEditorModal({
               value={editState.notes}
             />
           </label>
-          <label className="remember-rule">
-            <input
-              checked={editState.isReviewed}
-              onChange={(event) =>
-                setEditState((current) =>
-                  current ? { ...current, isReviewed: event.target.checked } : current
-                )
-              }
-              type="checkbox"
-            />
-            <span>Marcar como revisado</span>
-          </label>
-          <label className="remember-rule">
-            <input
-              checked={editState.movementType === 'transfer'}
-              onChange={(event) =>
-                setEditState((current) =>
-                  current
-                    ? {
-                        ...current,
-                        categoryId: '',
-                        movementType: event.target.checked
-                          ? 'transfer'
-                          : current.movementType === 'transfer'
-                            ? 'expense'
-                            : current.movementType
-                      }
-                    : current
-                )
-              }
-              type="checkbox"
-            />
-            <span>Transferencia interna</span>
-          </label>
-          <label className="remember-rule">
-            <input
-              checked={editState.rememberRule}
-              onChange={(event) =>
-                setEditState((current) =>
-                  current ? { ...current, rememberRule: event.target.checked } : current
-                )
-              }
-              type="checkbox"
-            />
-            <span>Guardar y recordar regla</span>
-          </label>
+          <div className="movement-editor__checks">
+            <label className="remember-rule">
+              <input
+                checked={editState.isReviewed}
+                onChange={(event) =>
+                  setEditState((current) =>
+                    current ? { ...current, isReviewed: event.target.checked } : current
+                  )
+                }
+                type="checkbox"
+              />
+              <span>Marcar como revisado</span>
+            </label>
+            <label className="remember-rule">
+              <input
+                checked={editState.movementType === 'transfer'}
+                onChange={(event) =>
+                  setEditState((current) =>
+                    current
+                      ? {
+                          ...current,
+                          categoryId: '',
+                          movementType: event.target.checked
+                            ? 'transfer'
+                            : current.movementType === 'transfer'
+                              ? 'expense'
+                              : current.movementType
+                        }
+                      : current
+                  )
+                }
+                type="checkbox"
+              />
+              <span>Transferencia interna</span>
+            </label>
+            <label className="remember-rule">
+              <input
+                checked={editState.rememberRule}
+                onChange={(event) =>
+                  setEditState((current) =>
+                    current ? { ...current, rememberRule: event.target.checked } : current
+                  )
+                }
+                type="checkbox"
+              />
+              <span>Guardar y recordar regla</span>
+            </label>
+          </div>
         </div>
         <div className="account-form__actions">
           <button

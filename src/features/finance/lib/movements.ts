@@ -42,7 +42,7 @@ export type MoneyMovement = {
 
 export type MovementListResult = {
   movements: MoneyMovement[];
-  hasMore: boolean;
+  total: number;
 };
 
 type TransactionRecord = {
@@ -91,7 +91,8 @@ export async function listMovements(input: {
   let query = supabase
     .from('transactions')
     .select(
-      'id, account_id, category_id, description, amount, currency, direction, occurred_at, movement_type, transaction_type, is_reviewed, notes, transfer_group_id, linked_transaction_id'
+      'id, account_id, category_id, description, amount, currency, direction, occurred_at, movement_type, transaction_type, is_reviewed, notes, transfer_group_id, linked_transaction_id',
+      { count: 'exact' }
     )
     .eq('workspace_id', input.workspaceId)
     .eq('status', 'posted')
@@ -123,15 +124,15 @@ export async function listMovements(input: {
     query = query.lte('occurred_at', `${input.filters.dateTo}T23:59:59.999Z`);
   }
 
-  const { data, error } = await query
-    .range(input.offset, input.offset + input.limit)
+  const { count, data, error } = await query
+    .range(input.offset, input.offset + input.limit - 1)
     .returns<TransactionRecord[]>();
 
   if (error) {
     throw error;
   }
 
-  const page = data.slice(0, input.limit);
+  const page = data;
   const linkedTransactionsById = await getLinkedTransactionsById(
     page
       .map((transaction) => transaction.linked_transaction_id)
@@ -143,7 +144,6 @@ export async function listMovements(input: {
   );
 
   return {
-    hasMore: data.length > input.limit,
     movements: page.map((transaction) => {
       const account = accountsById.get(transaction.account_id);
       const linkedAccount = transaction.linked_transaction_id
@@ -174,7 +174,8 @@ export async function listMovements(input: {
         transactionType: transaction.transaction_type,
         transferGroupId: transaction.transfer_group_id
       };
-    })
+    }),
+    total: count ?? 0
   } satisfies MovementListResult;
 }
 

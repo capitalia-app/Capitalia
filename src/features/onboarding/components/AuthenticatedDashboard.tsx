@@ -1597,6 +1597,7 @@ function ContainersPanel({ onCreateStartingPoint, summary }: ContainersPanelProp
 }
 
 function AssetsPanel({ summary }: AssetsPanelProps) {
+  const [selectedAsset, setSelectedAsset] = useState<PatrimonyAsset | null>(null);
   const assets = getAllContainerAssets(summary?.containers ?? []);
   const groups = groupAssetsByType(assets);
   const currency = summary?.currency ?? 'EUR';
@@ -1633,22 +1634,111 @@ function AssetsPanel({ summary }: AssetsPanelProps) {
             </summary>
             <div className="asset-list">
               {group.assets.map((asset) => (
-                <article className="asset-row" key={asset.id}>
+                <button
+                  className="asset-row transaction-row-button"
+                  key={asset.id}
+                  onClick={() => setSelectedAsset(asset)}
+                  type="button"
+                >
                   <div>
                     <strong>{asset.name}</strong>
                     <span>{asset.provider ?? 'Sin plataforma'}</span>
                   </div>
-                  <div>
+                  <div className="asset-performance-summary">
                     <strong>{formatMoney(asset.manualValue, asset.currency)}</strong>
-                    {asset.quantity ? <small>{asset.quantity} unidades</small> : null}
+                    <small>{getAssetCostSummary(asset)}</small>
                   </div>
-                </article>
+                </button>
               ))}
             </div>
           </details>
         ))}
       </div>
+
+      {selectedAsset ? (
+        <AssetDetailsModal asset={selectedAsset} onClose={() => setSelectedAsset(null)} />
+      ) : null}
     </section>
+  );
+}
+
+function AssetDetailsModal({
+  asset,
+  onClose
+}: {
+  asset: PatrimonyAsset;
+  onClose: () => void;
+}) {
+  const performance = getAssetPerformance(asset);
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section
+        className="danger-modal asset-detail-modal"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="section-heading">
+          <p className="eyebrow">Activo</p>
+          <h2>{asset.name}</h2>
+          <span>
+            {asset.provider ?? 'Sin plataforma'} - {getAssetTypeLabel(asset.assetType)}
+          </span>
+        </div>
+
+        <div className="asset-detail-grid">
+          <MetricCard
+            label="Valor actual"
+            value={formatMoney(asset.manualValue, asset.currency)}
+          />
+          <MetricCard
+            label="Coste total"
+            value={
+              performance.totalCost === null
+                ? 'Coste no informado'
+                : formatMoney(performance.totalCost, asset.currency)
+            }
+          />
+          <MetricCard
+            label="Beneficio"
+            value={
+              performance.profit === null
+                ? 'Coste no informado'
+                : formatMoney(performance.profit, asset.currency)
+            }
+          />
+          <MetricCard
+            label="Rentabilidad"
+            value={
+              performance.returnPercentage === null
+                ? 'Coste no informado'
+                : formatPercentage(performance.returnPercentage)
+            }
+          />
+        </div>
+
+        <div className="asset-detail-list">
+          <span>Cantidad: {asset.quantity ?? 'No informada'}</span>
+          <span>
+            Precio medio:{' '}
+            {asset.averageCost === null
+              ? 'No informado'
+              : formatMoney(asset.averageCost, asset.currency)}
+          </span>
+          <span>
+            Fecha de compra:{' '}
+            {asset.purchaseDate ? formatDate(asset.purchaseDate) : 'No informada'}
+          </span>
+          <span>Notas: {asset.notes ?? 'Sin notas'}</span>
+        </div>
+
+        <div className="account-form__actions">
+          <button className="text-link" onClick={onClose} type="button">
+            Cerrar
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1693,9 +1783,9 @@ function ContainerBreakdown({
                       <strong>{asset.name}</strong>
                       <span>{getAssetTypeLabel(asset.assetType)}</span>
                     </div>
-                    <div>
+                    <div className="asset-performance-summary">
                       <strong>{formatMoney(asset.manualValue, asset.currency)}</strong>
-                      {asset.quantity ? <small>{asset.quantity} unidades</small> : null}
+                      <small>{getAssetCostSummary(asset)}</small>
                     </div>
                   </article>
                 ))}
@@ -1753,6 +1843,9 @@ type DraftAsset = Omit<CreateStartingPointAssetInput, 'value' | 'quantity'> & {
   localId: string;
   valueInput: string;
   quantityInput: string;
+  averageCostInput: string;
+  totalCostInput: string;
+  purchaseDate: string;
 };
 
 const containerTypes = [
@@ -1875,15 +1968,24 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
       }))
       .filter((item) => item.name);
     const assets = formState.assets
-      .map((item) => ({
-        assetType: item.assetType,
-        containerLocalId: item.containerLocalId || null,
-        currency: item.currency.trim().toUpperCase(),
-        name: item.name.trim(),
-        notes: item.notes?.trim() || null,
-        quantity: item.quantityInput ? Number(item.quantityInput) : null,
-        value: Math.abs(Number(item.valueInput))
-      }))
+      .map((item) => {
+        const quantity = parseOptionalNumber(item.quantityInput);
+        const averageCost = parseOptionalNumber(item.averageCostInput);
+
+        return {
+          assetType: item.assetType,
+          averageCost,
+          containerLocalId: item.containerLocalId || null,
+          currency: item.currency.trim().toUpperCase(),
+          name: item.name.trim(),
+          notes: item.notes?.trim() || null,
+          purchaseDate: item.purchaseDate || null,
+          purchasePrice: averageCost,
+          quantity,
+          totalCost: getDraftAssetTotalCost(item),
+          value: Math.abs(Number(item.valueInput))
+        };
+      })
       .filter((item) => item.name && Number.isFinite(item.value));
     const debts = formState.debts
       .map((item) => ({
@@ -1892,7 +1994,11 @@ function SnapshotPanel({ onBack, onSaved, summary }: SnapshotPanelProps) {
         currency: item.currency.trim().toUpperCase(),
         name: item.name.trim(),
         notes: item.notes?.trim() || null,
+        purchaseDate: null,
+        purchasePrice: null,
         quantity: null,
+        averageCost: null,
+        totalCost: null,
         value: Math.abs(Number(item.valueInput))
       }))
       .filter((item) => item.name && Number.isFinite(item.value));
@@ -2441,22 +2547,80 @@ function AssetDraftRow({
       </div>
 
       {variant === 'asset' ? (
-        <label>
-          <span>Cantidad opcional</span>
-          <input
-            inputMode="decimal"
-            min="0"
-            onChange={(event) =>
-              updateDraftAsset(setFormState, item.localId, variant, {
-                quantityInput: event.target.value
-              })
-            }
-            placeholder="0"
-            step="0.000001"
-            type="number"
-            value={item.quantityInput}
-          />
-        </label>
+        <section className="purchase-data-block" aria-label="Datos de compra">
+          <div>
+            <strong>Datos de compra</strong>
+            <p>Opcional. Sirve para calcular beneficio y rentabilidad.</p>
+          </div>
+          <div className="account-form__grid">
+            <label>
+              <span>Cantidad</span>
+              <input
+                inputMode="decimal"
+                min="0"
+                onChange={(event) =>
+                  updateDraftAsset(setFormState, item.localId, variant, {
+                    quantityInput: event.target.value
+                  })
+                }
+                placeholder="0"
+                step="0.000001"
+                type="number"
+                value={item.quantityInput}
+              />
+            </label>
+            <label>
+              <span>Precio medio de compra</span>
+              <input
+                inputMode="decimal"
+                min="0"
+                onChange={(event) =>
+                  updateDraftAsset(setFormState, item.localId, variant, {
+                    averageCostInput: event.target.value
+                  })
+                }
+                placeholder="0"
+                step="0.01"
+                type="number"
+                value={item.averageCostInput}
+              />
+            </label>
+          </div>
+          <div className="account-form__grid">
+            <label>
+              <span>Coste total invertido</span>
+              <input
+                inputMode="decimal"
+                min="0"
+                onChange={(event) =>
+                  updateDraftAsset(setFormState, item.localId, variant, {
+                    totalCostInput: event.target.value
+                  })
+                }
+                placeholder={
+                  getDraftAssetTotalCost(item)
+                    ? String(getDraftAssetTotalCost(item))
+                    : '0'
+                }
+                step="0.01"
+                type="number"
+                value={item.totalCostInput}
+              />
+            </label>
+            <label>
+              <span>Fecha de compra aproximada</span>
+              <input
+                onChange={(event) =>
+                  updateDraftAsset(setFormState, item.localId, variant, {
+                    purchaseDate: event.target.value
+                  })
+                }
+                type="date"
+                value={item.purchaseDate}
+              />
+            </label>
+          </div>
+        </section>
       ) : null}
 
       <label>
@@ -2743,12 +2907,15 @@ function createDraftContainer(currency: string) {
 function createDraftAsset(currency: string) {
   return {
     assetType: 'fund',
+    averageCostInput: '',
     containerLocalId: null,
     currency,
     localId: crypto.randomUUID(),
     name: '',
     notes: '',
+    purchaseDate: '',
     quantityInput: '',
+    totalCostInput: '',
     valueInput: ''
   } satisfies DraftAsset;
 }
@@ -2756,12 +2923,15 @@ function createDraftAsset(currency: string) {
 function createDraftDebt(currency: string) {
   return {
     assetType: 'liability',
+    averageCostInput: '',
     containerLocalId: null,
     currency,
     localId: crypto.randomUUID(),
     name: '',
     notes: '',
+    purchaseDate: '',
     quantityInput: '',
+    totalCostInput: '',
     valueInput: ''
   } satisfies DraftAsset;
 }
@@ -2812,6 +2982,33 @@ function sumDraftAssets(items: DraftAsset[]) {
 
     return Number.isFinite(value) ? total + Math.abs(value) : total;
   }, 0);
+}
+
+function parseOptionalNumber(value: string) {
+  if (!value.trim()) {
+    return null;
+  }
+
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? Math.abs(parsed) : null;
+}
+
+function getDraftAssetTotalCost(item: DraftAsset) {
+  const directTotalCost = parseOptionalNumber(item.totalCostInput);
+
+  if (directTotalCost !== null) {
+    return directTotalCost;
+  }
+
+  const quantity = parseOptionalNumber(item.quantityInput);
+  const averageCost = parseOptionalNumber(item.averageCostInput);
+
+  if (quantity === null || averageCost === null) {
+    return null;
+  }
+
+  return quantity * averageCost;
 }
 
 type EmptySectionProps = {
@@ -2866,6 +3063,49 @@ function formatDate(date: string) {
     month: 'short',
     year: 'numeric'
   }).format(new Date(date));
+}
+
+function formatPercentage(value: number) {
+  return new Intl.NumberFormat('es-ES', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    style: 'percent'
+  }).format(value / 100);
+}
+
+function getAssetPerformance(asset: PatrimonyAsset) {
+  const totalCost = asset.totalCost;
+
+  if (!totalCost || totalCost <= 0) {
+    return {
+      profit: null,
+      returnPercentage: null,
+      totalCost: null
+    };
+  }
+
+  const profit = asset.manualValue - totalCost;
+
+  return {
+    profit,
+    returnPercentage: (profit / totalCost) * 100,
+    totalCost
+  };
+}
+
+function getAssetCostSummary(asset: PatrimonyAsset) {
+  const performance = getAssetPerformance(asset);
+
+  if (performance.totalCost === null || performance.profit === null) {
+    return asset.quantity
+      ? `${asset.quantity} unidades - Coste no informado`
+      : 'Coste no informado';
+  }
+
+  return `Coste ${formatMoney(performance.totalCost, asset.currency)} - Beneficio ${formatMoney(
+    performance.profit,
+    asset.currency
+  )} (${formatPercentage(performance.returnPercentage ?? 0)})`;
 }
 
 function getFinancialAccountLabel(account: FinancialAccount) {

@@ -853,69 +853,43 @@ function MovementFiltersPanel({
   onChange: Dispatch<SetStateAction<MovementFilters>>;
   resultLabel: string;
 }) {
-  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [draftFilters, setDraftFilters] = useState<MovementFilters>(filters);
-  const activeAdvancedFilters = isFilterSheetOpen ? draftFilters : filters;
 
   useEffect(() => {
-    if (isFilterSheetOpen) {
+    if (isFilterModalOpen) {
       setDraftFilters(filters);
     }
-  }, [filters, isFilterSheetOpen]);
-
-  useEffect(() => {
-    if (!isFilterSheetOpen) {
-      return;
-    }
-
-    const previousOverflow = document.body.style.overflow;
-
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [isFilterSheetOpen]);
+  }, [filters, isFilterModalOpen]);
 
   function updateSearch(search: string) {
     onChange((current) => ({ ...current, search }));
   }
 
-  function updateAdvancedFilter(patch: Partial<MovementFilters>) {
-    if (isFilterSheetOpen) {
-      setDraftFilters((current) => ({ ...current, ...patch }));
-      return;
-    }
-
-    onChange((current) => ({ ...current, ...patch }));
-  }
-
-  function clearAdvancedFilters() {
+  function getClearedAdvancedFilters() {
     const clearedFilters = {
       ...defaultMovementFilters,
       search: filters.search
     };
 
-    if (isFilterSheetOpen) {
-      setDraftFilters(clearedFilters);
-      return;
-    }
+    return clearedFilters;
+  }
 
-    onChange(clearedFilters);
+  function clearDesktopAdvancedFilters() {
+    onChange(getClearedAdvancedFilters());
+  }
+
+  function clearDraftAdvancedFilters() {
+    setDraftFilters(getClearedAdvancedFilters());
   }
 
   function applyDraftFilters() {
     onChange(draftFilters);
-    setIsFilterSheetOpen(false);
+    setIsFilterModalOpen(false);
   }
 
   return (
-    <section
-      className={
-        isFilterSheetOpen ? 'movement-filters movement-filters--open' : 'movement-filters'
-      }
-      aria-label="Filtros de movimientos"
-    >
+    <section className="movement-filters" aria-label="Filtros de movimientos">
       <div className="movement-filters__compact">
         <label>
           <span>Buscar</span>
@@ -928,7 +902,7 @@ function MovementFiltersPanel({
         </label>
         <button
           className="movement-filter-button"
-          onClick={() => setIsFilterSheetOpen(true)}
+          onClick={() => setIsFilterModalOpen(true)}
           type="button"
         >
           Filtros
@@ -936,109 +910,200 @@ function MovementFiltersPanel({
         <span className="movement-filters__counter">{resultLabel}</span>
       </div>
 
-      {isFilterSheetOpen ? (
-        <button
-          aria-label="Cerrar filtros"
-          className="movement-filters__backdrop"
-          onClick={() => setIsFilterSheetOpen(false)}
-          type="button"
+      <div className="movement-filters__advanced movement-filters__advanced--desktop">
+        <MovementAdvancedFilters
+          accounts={accounts}
+          categories={categories}
+          filters={filters}
+          onChange={(patch) => onChange((current) => ({ ...current, ...patch }))}
+        />
+        <div className="movement-filters__actions movement-filters__actions--desktop">
+          <button
+            className="text-link"
+            onClick={clearDesktopAdvancedFilters}
+            type="button"
+          >
+            Limpiar filtros
+          </button>
+        </div>
+      </div>
+
+      {isFilterModalOpen ? (
+        <MovementFiltersModal
+          accounts={accounts}
+          categories={categories}
+          draftFilters={draftFilters}
+          onApply={applyDraftFilters}
+          onChange={(patch) => setDraftFilters((current) => ({ ...current, ...patch }))}
+          onClear={clearDraftAdvancedFilters}
+          onClose={() => setIsFilterModalOpen(false)}
         />
       ) : null}
+    </section>
+  );
+}
 
-      <div className="movement-filters__advanced">
-        <div className="movement-filters__sheet-header">
+function MovementAdvancedFilters({
+  accounts,
+  categories,
+  filters,
+  onChange
+}: {
+  accounts: FinancialAccount[];
+  categories: TransactionCategory[];
+  filters: MovementFilters;
+  onChange: (patch: Partial<MovementFilters>) => void;
+}) {
+  return (
+    <>
+      <label>
+        <span>Tipo</span>
+        <select
+          onChange={(event) =>
+            onChange({
+              movementType: event.target.value as MovementReviewFilter
+            })
+          }
+          value={filters.movementType}
+        >
+          <option value="all">Todos</option>
+          <option value="income">Ingresos</option>
+          <option value="expense">Gastos reales</option>
+          <option value="investment">Inversiones</option>
+          <option value="transfer">Transferencias</option>
+          <option value="pending">Pendientes de revisar</option>
+        </select>
+      </label>
+      <label>
+        <span>Cuenta / plataforma</span>
+        <select
+          onChange={(event) => onChange({ accountId: event.target.value })}
+          value={filters.accountId}
+        >
+          <option value="">Todas</option>
+          {accounts.map((account) => (
+            <option key={account.id} value={account.id}>
+              {getFinancialAccountLabel(account)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Categoria</span>
+        <select
+          onChange={(event) => onChange({ categoryId: event.target.value })}
+          value={filters.categoryId}
+        >
+          <option value="">Todas</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="account-form__grid movement-filters__dates">
+        <label>
+          <span>Desde</span>
+          <input
+            onChange={(event) => onChange({ dateFrom: event.target.value })}
+            type="date"
+            value={filters.dateFrom}
+          />
+        </label>
+        <label>
+          <span>Hasta</span>
+          <input
+            onChange={(event) => onChange({ dateTo: event.target.value })}
+            type="date"
+            value={filters.dateTo}
+          />
+        </label>
+      </div>
+    </>
+  );
+}
+
+function MovementFiltersModal({
+  accounts,
+  categories,
+  draftFilters,
+  onApply,
+  onChange,
+  onClear,
+  onClose
+}: {
+  accounts: FinancialAccount[];
+  categories: TransactionCategory[];
+  draftFilters: MovementFilters;
+  onApply: () => void;
+  onChange: (patch: Partial<MovementFilters>) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const animationFrame = window.requestAnimationFrame(() => {
+      contentRef.current?.scrollTo({ top: 0 });
+    });
+
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  const modal = (
+    <div className="movement-filter-modal-backdrop" role="presentation">
+      <section
+        className="movement-filter-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Filtros de movimientos"
+      >
+        <div className="movement-filter-modal__header">
           <div>
             <p className="eyebrow">Filtros</p>
             <strong>Refinar movimientos</strong>
           </div>
           <button
             aria-label="Cerrar filtros"
-            className="text-link movement-filters__close"
-            onClick={() => setIsFilterSheetOpen(false)}
+            className="movement-editor__close"
+            onClick={onClose}
             type="button"
           >
             X
           </button>
         </div>
-        <label>
-          <span>Tipo</span>
-          <select
-            onChange={(event) =>
-              updateAdvancedFilter({
-                movementType: event.target.value as MovementReviewFilter
-              })
-            }
-            value={activeAdvancedFilters.movementType}
-          >
-            <option value="all">Todos</option>
-            <option value="income">Ingresos</option>
-            <option value="expense">Gastos reales</option>
-            <option value="investment">Inversiones</option>
-            <option value="transfer">Transferencias</option>
-            <option value="pending">Pendientes de revisar</option>
-          </select>
-        </label>
-        <label>
-          <span>Cuenta / plataforma</span>
-          <select
-            onChange={(event) => updateAdvancedFilter({ accountId: event.target.value })}
-            value={activeAdvancedFilters.accountId}
-          >
-            <option value="">Todas</option>
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {getFinancialAccountLabel(account)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Categoria</span>
-          <select
-            onChange={(event) => updateAdvancedFilter({ categoryId: event.target.value })}
-            value={activeAdvancedFilters.categoryId}
-          >
-            <option value="">Todas</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="account-form__grid">
-          <label>
-            <span>Desde</span>
-            <input
-              onChange={(event) => updateAdvancedFilter({ dateFrom: event.target.value })}
-              type="date"
-              value={activeAdvancedFilters.dateFrom}
-            />
-          </label>
-          <label>
-            <span>Hasta</span>
-            <input
-              onChange={(event) => updateAdvancedFilter({ dateTo: event.target.value })}
-              type="date"
-              value={activeAdvancedFilters.dateTo}
-            />
-          </label>
+        <div className="movement-filter-modal__content" ref={contentRef}>
+          <MovementAdvancedFilters
+            accounts={accounts}
+            categories={categories}
+            filters={draftFilters}
+            onChange={onChange}
+          />
         </div>
-        <div className="movement-filters__actions">
-          <button className="text-link" onClick={clearAdvancedFilters} type="button">
+        <div className="movement-filter-modal__footer">
+          <button className="text-link" onClick={onClear} type="button">
             Limpiar filtros
           </button>
           <button
             className="danger-button movement-filters__apply"
-            onClick={applyDraftFilters}
+            onClick={onApply}
             type="button"
           >
             Aplicar filtros
           </button>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
   );
+
+  return createPortal(modal, document.body);
 }
 
 function MovementPagination({

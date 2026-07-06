@@ -269,8 +269,8 @@ h1 {
 
 .app-header {
   position: sticky;
-  top: max(14px, env(safe-area-inset-top));
-  z-index: 20;
+  top: 0;
+  z-index: 90;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -279,7 +279,7 @@ h1 {
   border: 1px solid rgba(244, 239, 228, 0.1);
   border-radius: 8px;
   padding: 8px 10px;
-  background: rgba(7, 12, 16, 0.82);
+  background: rgba(7, 12, 16, 0.94);
   box-shadow:
     inset 0 1px 0 rgba(244, 239, 228, 0.07),
     0 16px 36px rgba(0, 0, 0, 0.22);
@@ -643,6 +643,23 @@ h1 {
   color: var(--gold-soft);
   font-size: 0.8rem;
   font-weight: 760;
+}
+
+.transaction-meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+  max-width: 240px;
+}
+
+.transaction-meta-chips small {
+  border: 1px solid rgba(244, 239, 228, 0.1);
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: rgba(244, 239, 228, 0.7);
+  background: rgba(244, 239, 228, 0.06);
+  line-height: 1.2;
 }
 
 .transaction-row {
@@ -1087,28 +1104,10 @@ h1 {
   opacity: 0.48;
 }
 
-.modal-backdrop {
+.app-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 70;
-  display: grid;
-  place-items: center;
-  padding: 18px;
-  background: rgba(2, 6, 8, 0.68);
-}
-
-.movement-editor-backdrop {
-  z-index: 120;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
-
-.movement-filter-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 118;
+  z-index: 140;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1116,11 +1115,10 @@ h1 {
   background: rgba(2, 6, 8, 0.68);
 }
 
-.movement-filter-modal {
+.app-modal {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: calc(100vw - 32px);
-  max-width: 520px;
+  width: min(680px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   overflow: hidden;
   border: 1px solid rgba(244, 239, 228, 0.14);
@@ -1130,8 +1128,8 @@ h1 {
   box-shadow: var(--shadow);
 }
 
-.movement-filter-modal__header,
-.movement-filter-modal__footer {
+.app-modal__header,
+.app-modal__footer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
@@ -1140,16 +1138,43 @@ h1 {
   background: rgba(7, 12, 16, 0.98);
 }
 
-.movement-filter-modal__header {
+.app-modal__header {
   border-bottom: 1px solid rgba(244, 239, 228, 0.1);
 }
 
-.movement-filter-modal__header strong {
+.app-modal__header h2 {
+  margin: 0;
   color: var(--paper);
-  font-size: 1.05rem;
+  font-size: clamp(1.35rem, 5vw, 1.9rem);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
 }
 
-.movement-filter-modal__content {
+.app-modal__header .eyebrow {
+  margin-bottom: 8px;
+}
+
+.app-modal__header span {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 7px;
+  color: rgba(244, 239, 228, 0.58);
+  font-size: 0.9rem;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.app-modal__close {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(244, 239, 228, 0.14);
+  border-radius: 999px;
+  color: var(--paper);
+  background: rgba(244, 239, 228, 0.08);
+  font-weight: 900;
+}
+
+.app-modal__content {
   display: grid;
   gap: 10px;
   min-height: 0;
@@ -1157,13 +1182,22 @@ h1 {
   padding: 16px;
 }
 
-.movement-filter-modal__content label {
+.app-modal__content.account-form {
+  border: 0;
+  border-radius: 0;
+  padding: 16px;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.app-modal__content label {
   display: grid;
   min-width: 0;
   gap: 7px;
 }
 
-.movement-filter-modal__content label > span {
+.app-modal__content label > span {
   color: rgba(244, 239, 228, 0.56);
   font-size: 0.72rem;
   font-weight: 820;
@@ -1174,25 +1208,16 @@ h1 {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
-.movement-filter-modal__footer {
+.app-modal__footer {
   border-top: 1px solid rgba(244, 239, 228, 0.1);
 }
 
+.movement-filter-modal,
 .danger-modal {
-  display: grid;
-  gap: 14px;
-  width: min(100%, 520px);
-  max-height: calc(100vh - 36px);
-  border: 1px solid rgba(244, 239, 228, 0.14);
-  border-radius: 8px;
-  padding: 18px;
-  color: var(--paper);
-  background: rgba(7, 12, 16, 0.96);
-  box-shadow: var(--shadow);
-  overflow: auto;
+  width: min(520px, calc(100vw - 32px));
 }
 
-.danger-modal input {
+.app-modal input {
   width: 100%;
   min-height: 44px;
   border: 1px solid rgba(244, 239, 228, 0.16);
@@ -1329,8 +1354,9 @@ h1 {
 .account-form textarea,
 .movement-filters input,
 .movement-filters select,
-.movement-filter-modal input,
-.movement-filter-modal select {
+.app-modal input,
+.app-modal select,
+.app-modal textarea {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -1344,7 +1370,8 @@ h1 {
   outline: none;
 }
 
-.account-form textarea {
+.account-form textarea,
+.app-modal textarea {
   min-height: 96px;
   resize: vertical;
   padding: 12px;
@@ -1353,7 +1380,7 @@ h1 {
 
 .account-form select option,
 .movement-filters select option,
-.movement-filter-modal select option {
+.app-modal select option {
   color: var(--ink);
 }
 
@@ -1362,8 +1389,9 @@ h1 {
 .account-form textarea:focus,
 .movement-filters input:focus,
 .movement-filters select:focus,
-.movement-filter-modal input:focus,
-.movement-filter-modal select:focus {
+.app-modal input:focus,
+.app-modal select:focus,
+.app-modal textarea:focus {
   border-color: rgba(196, 161, 90, 0.62);
   box-shadow: 0 0 0 3px rgba(196, 161, 90, 0.14);
 }
@@ -1428,65 +1456,19 @@ h1 {
 }
 
 .movement-editor {
-  position: relative;
-  align-self: center;
   width: min(720px, calc(100vw - 32px));
-  max-height: calc(100dvh - 32px);
-  overflow: hidden;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-}
-
-.movement-editor__header {
-  position: sticky;
-  top: -18px;
-  z-index: 2;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 12px;
-  margin: -18px -18px 0;
-  border-bottom: 1px solid rgba(244, 239, 228, 0.1);
-  padding: 18px;
-  background: rgba(7, 12, 16, 0.98);
-}
-
-.movement-editor__header h2 {
-  font-size: clamp(1.35rem, 5vw, 1.9rem);
-}
-
-.movement-editor__header span {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.movement-editor__close {
-  width: 36px;
-  height: 36px;
-  border: 1px solid rgba(244, 239, 228, 0.14);
-  border-radius: 999px;
-  color: var(--paper);
-  background: rgba(244, 239, 228, 0.08);
-  font-weight: 900;
 }
 
 .movement-editor__content {
-  min-height: 0;
-  overflow: auto;
-  padding-right: 2px;
+  gap: 10px;
 }
 
 .movement-editor__content textarea {
   min-height: 72px;
 }
 
-.movement-editor .account-form__actions {
-  position: sticky;
-  bottom: -18px;
-  margin: 0 -18px -18px;
-  border-top: 1px solid rgba(244, 239, 228, 0.1);
-  padding: 12px 18px;
-  background: rgba(7, 12, 16, 0.98);
+.movement-editor .app-modal__footer {
+  grid-template-columns: auto minmax(0, 1fr);
 }
 
 .movement-editor__checks {
@@ -2015,27 +1997,11 @@ h1 {
     display: none;
   }
 
-  .movement-editor-backdrop {
-    align-items: flex-end;
-    justify-content: center;
-    padding: 0;
-  }
-
-  .movement-editor {
-    position: fixed;
-    inset: auto 0 0;
-    width: 100%;
-    max-height: 90dvh;
-    border-radius: 16px 16px 0 0;
-    padding: 14px 14px 16px;
-  }
-
-  .movement-editor__header h2 {
-    font-size: 1.28rem;
+  .app-modal-backdrop {
+    padding: 16px;
   }
 
   .movement-editor__content {
-    gap: 10px;
     padding: 12px;
   }
 
@@ -2052,10 +2018,8 @@ h1 {
     flex: 1 1 100%;
   }
 
-  .movement-editor .account-form__actions {
-    bottom: -16px;
-    margin: 0 -16px -16px;
-    padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+  .movement-editor .app-modal__footer {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
 }
 

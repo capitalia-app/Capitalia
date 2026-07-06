@@ -850,15 +850,6 @@ h1 {
   gap: 10px;
 }
 
-.movement-filters__sheet-header,
-.movement-filters__actions {
-  display: none;
-}
-
-.movement-filters__backdrop {
-  display: none;
-}
-
 .movement-filters label {
   min-width: 0;
   display: grid;
@@ -1114,6 +1105,79 @@ h1 {
   padding: 16px;
 }
 
+.movement-filter-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 118;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(2, 6, 8, 0.68);
+}
+
+.movement-filter-modal {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: calc(100vw - 32px);
+  max-width: 520px;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  border: 1px solid rgba(244, 239, 228, 0.14);
+  border-radius: 16px;
+  color: var(--paper);
+  background: rgba(7, 12, 16, 0.98);
+  box-shadow: var(--shadow);
+}
+
+.movement-filter-modal__header,
+.movement-filter-modal__footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 16px;
+  background: rgba(7, 12, 16, 0.98);
+}
+
+.movement-filter-modal__header {
+  border-bottom: 1px solid rgba(244, 239, 228, 0.1);
+}
+
+.movement-filter-modal__header strong {
+  color: var(--paper);
+  font-size: 1.05rem;
+}
+
+.movement-filter-modal__content {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.movement-filter-modal__content label {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.movement-filter-modal__content label > span {
+  color: rgba(244, 239, 228, 0.56);
+  font-size: 0.72rem;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.movement-filter-modal .movement-filters__dates {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.movement-filter-modal__footer {
+  border-top: 1px solid rgba(244, 239, 228, 0.1);
+}
+
 .danger-modal {
   display: grid;
   gap: 14px;
@@ -1264,8 +1328,12 @@ h1 {
 .account-form select,
 .account-form textarea,
 .movement-filters input,
-.movement-filters select {
+.movement-filters select,
+.movement-filter-modal input,
+.movement-filter-modal select {
+  box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   min-height: 44px;
   border: 1px solid rgba(244, 239, 228, 0.16);
   border-radius: 8px;
@@ -1284,7 +1352,8 @@ h1 {
 }
 
 .account-form select option,
-.movement-filters select option {
+.movement-filters select option,
+.movement-filter-modal select option {
   color: var(--ink);
 }
 
@@ -1292,7 +1361,9 @@ h1 {
 .account-form select:focus,
 .account-form textarea:focus,
 .movement-filters input:focus,
-.movement-filters select:focus {
+.movement-filters select:focus,
+.movement-filter-modal input:focus,
+.movement-filter-modal select:focus {
   border-color: rgba(196, 161, 90, 0.62);
   box-shadow: 0 0 0 3px rgba(196, 161, 90, 0.14);
 }
@@ -1940,70 +2011,8 @@ h1 {
     padding: 10px;
   }
 
-  .movement-filters--open {
-    z-index: 80;
-  }
-
-  .movement-filters__advanced {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 82;
+  .movement-filters__advanced--desktop {
     display: none;
-    max-height: 88dvh;
-    overflow: auto;
-    border: 1px solid rgba(244, 239, 228, 0.14);
-    border-bottom: 0;
-    border-radius: 18px 18px 0 0;
-    padding: 16px;
-    background: rgba(7, 12, 16, 0.98);
-    box-shadow: var(--shadow);
-  }
-
-  .movement-filters--open .movement-filters__advanced {
-    display: grid;
-  }
-
-  .movement-filters--open .movement-filters__backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 81;
-    display: block;
-    border: 0;
-    background: rgba(2, 6, 8, 0.68);
-  }
-
-  .movement-filters__sheet-header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: start;
-  }
-
-  .movement-filters__sheet-header strong {
-    color: var(--paper);
-    font-size: 1.05rem;
-  }
-
-  .movement-filters__close {
-    min-width: 36px;
-  }
-
-  .movement-filters__actions {
-    position: sticky;
-    bottom: -16px;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 10px;
-    margin: 0 -16px -16px;
-    border-top: 1px solid rgba(244, 239, 228, 0.1);
-    padding: 12px 16px max(12px, env(safe-area-inset-bottom));
-    background: rgba(7, 12, 16, 0.98);
-  }
-
-  .movement-filters__apply {
-    min-height: 42px;
   }
 
   .movement-editor-backdrop {
@@ -2052,8 +2061,9 @@ h1 {
 
 @media (min-width: 760px) {
   .movement-filters {
-    grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     align-items: start;
+    overflow: hidden;
   }
 
   .movement-filters__compact {
@@ -2069,9 +2079,15 @@ h1 {
     display: contents;
   }
 
-  .movement-filters__advanced .account-form__grid {
+  .movement-filters__dates {
     grid-column: 1 / -1;
-    grid-template-columns: repeat(2, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .movement-filters__actions--desktop {
+    display: flex;
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 
   .experience-frame {
@@ -2176,6 +2192,18 @@ h1 {
 
   .experience-frame--light .experience-canvas {
     border-color: rgba(16, 24, 32, 0.1);
+  }
+}
+
+@media (min-width: 760px) and (max-width: 1039px) {
+  .movement-filters__compact label {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1040px) {
+  .movement-filters__compact label {
+    grid-column: span 2;
   }
 }
 

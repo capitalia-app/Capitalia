@@ -79,6 +79,14 @@ type InsertedTransactionRecord = {
   transfer_group_id: string | null;
 };
 
+type AssetCostRecord = {
+  id: string;
+  asset_type: string | null;
+  manual_value: number | string | null;
+  name: string;
+  total_cost: number | string | null;
+};
+
 type TransferLinkPlan = {
   fingerprint: string;
   transferGroupId: string;
@@ -244,7 +252,9 @@ export async function saveCsvImport(params: {
           is_reviewed: transaction.isReviewed,
           movement_type: transaction.movementType,
           source_format: transaction.sourceFormat,
-          transaction_type: mapMovementTypeToTransactionType(transaction.movementType),
+          transaction_type:
+            transaction.transactionType ??
+            mapMovementTypeToTransactionType(transaction.movementType),
           type: transaction.type
         },
         raw_payload: transaction.rawRow,
@@ -309,6 +319,11 @@ export async function saveCsvImport(params: {
     selectedContainerId: params.container.id,
     workspaceId: params.workspaceId
   });
+  await applyAssetPurchasesToContainer({
+    containerId: params.container.id,
+    transactions: newTransactions,
+    workspaceId: params.workspaceId
+  });
 
   return {
     duplicateCount,
@@ -316,6 +331,178 @@ export async function saveCsvImport(params: {
     importedCount: newTransactions.length,
     pendingReviewCount
   } satisfies CsvSaveResult;
+}
+
+async function applyAssetPurchasesToContainer(input: {
+  workspaceId: string;
+  containerId: string;
+  transactions: ClassifiedImportTransaction[];
+}) {
+  const purchases = input.transactions.filter(
+    (transaction) =>
+      transaction.movementType === 'investment' ||
+      transaction.transactionType === 'asset_purchase'
+  );
+
+  if (!supabase || purchases.length === 0) {
+    return;
+  }
+
+  for (const purchase of purchases) {
+    const amount = Math.abs(purchase.amount);
+    const assetName = getAssetNameFromPurchase(purchase);
+    const existingAsset = await findContainerAsset({
+      assetName,
+      containerId: input.containerId,
+      workspaceId: input.workspaceId
+    });
+    const nextTotalCost = Number(existingAsset?.total_cost ?? 0) + amount;
+    const nextManualValue = Number(existingAsset?.manual_value ?? 0) || nextTotalCost;
+
+    if (existingAsset) {
+      const { error } = await supabase
+        .from('assets')
+        .update({
+          manual_value: nextManualValue,
+          total_cost: nextTotalCost
+        })
+        .eq('id', existingAsset.id)
+        .eq('workspace_id', input.workspaceId);
+
+      if (error) {
+        throw error;
+      }
+    } else {
+      const { error } = await supabase.from('assets').insert({
+        asset_type: mapCategoryNameToAssetType(purchase.categoryName),
+        container_id: input.containerId,
+        currency: purchase.currency.toUpperCase(),
+        manual_value: amount,
+        metadata: {
+          source: 'asset_purchase_import'
+        },
+        name: assetName,
+        provider: null,
+        status: 'active',
+        total_cost: amount,
+        type: mapCategoryNameToLegacyAssetType(purchase.categoryName),
+        workspace_id: input.workspaceId
+      });
+
+      if (error) {
+        throw error;
+      }
+    }
+
+    await decreaseContainerCashAsset({
+      amount,
+      containerId: input.containerId,
+      workspaceId: input.workspaceId
+    });
+  }
+}
+
+async function findContainerAsset(input: {
+  workspaceId: string;
+  containerId: string;
+  assetName: string;
+}) {
+  if (!supabase) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('assets')
+    .select('id, name, asset_type, manual_value, total_cost')
+    .eq('workspace_id', input.workspaceId)
+    .eq('container_id', input.containerId)
+    .ilike('name', input.assetName)
+    .is('deleted_at', null)
+    .limit(1)
+    .maybeSingle<AssetCostRecord>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function decreaseContainerCashAsset(input: {
+  workspaceId: string;
+  containerId: string;
+  amount: number;
+}) {
+  if (!supabase) {
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('assets')
+    .select('id, name, asset_type, manual_value, total_cost')
+    .eq('workspace_id', input.workspaceId)
+    .eq('container_id', input.containerId)
+    .eq('asset_type', 'cash')
+    .is('deleted_at', null)
+    .limit(1)
+    .maybeSingle<AssetCostRecord>();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return;
+  }
+
+  const nextValue = Math.max(0, Number(data.manual_value ?? 0) - input.amount);
+  const { error: updateError } = await supabase
+    .from('assets')
+    .update({
+      manual_value: nextValue
+    })
+    .eq('id', data.id)
+    .eq('workspace_id', input.workspaceId);
+
+  if (updateError) {
+    throw updateError;
+  }
+}
+
+function getAssetNameFromPurchase(transaction: ClassifiedImportTransaction) {
+  return transaction.description;
+}
+
+function mapCategoryNameToAssetType(categoryName: string | null) {
+  const normalizedName = normalizeHeader(categoryName ?? '');
+
+  if (normalizedName.includes('cripto')) {
+    return 'crypto';
+  }
+
+  if (normalizedName.includes('etf')) {
+    return 'etf';
+  }
+
+  if (normalizedName.includes('accion')) {
+    return 'stock';
+  }
+
+  if (normalizedName.includes('oro')) {
+    return 'gold';
+  }
+
+  return 'fund';
+}
+
+function mapCategoryNameToLegacyAssetType(categoryName: string | null) {
+  const assetType = mapCategoryNameToAssetType(categoryName);
+
+  if (assetType === 'crypto') {
+    return 'crypto';
+  }
+
+  return 'security';
 }
 
 async function createTransferLinkPlans(input: {

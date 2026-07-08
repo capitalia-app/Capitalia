@@ -36,6 +36,7 @@ export type PatrimonyAsset = {
   currency: string;
   quantity: number | null;
   currentValue: number | null;
+  currentValueIsEstimated: boolean;
   hasCurrentValuation: boolean;
   manualValue: number;
   purchasePrice: number | null;
@@ -1108,15 +1109,20 @@ function isEmptyContainerSnapshotItem(item: PatrimonialSnapshotItem) {
 function mapAssetRecord(asset: AssetRecord, latestValuation?: AssetValuationRecord) {
   const assetType = asset.asset_type ?? mapLegacyAssetTypeToAssetType(asset.type);
   const storedValue = Number(asset.manual_value ?? 0);
+  const totalCost = asset.total_cost === null ? null : Number(asset.total_cost);
   const valuationValue =
     latestValuation?.value === undefined ? null : Number(latestValuation.value);
-  const value = valuationValue ?? storedValue;
+  const estimatedCostValue =
+    valuationValue === null && storedValue === 0 && totalCost !== null ? totalCost : null;
+  const value =
+    valuationValue ?? (storedValue > 0 ? storedValue : (estimatedCostValue ?? 0));
 
   return {
     assetType,
     containerId: asset.container_id,
     currency: asset.currency,
     currentValue: valuationValue,
+    currentValueIsEstimated: estimatedCostValue !== null,
     hasCurrentValuation: valuationValue !== null,
     id: asset.id,
     legacyType: asset.type,
@@ -1127,7 +1133,7 @@ function mapAssetRecord(asset: AssetRecord, latestValuation?: AssetValuationReco
     purchaseDate: asset.purchase_date,
     purchasePrice: asset.purchase_price === null ? null : Number(asset.purchase_price),
     averageCost: asset.average_cost === null ? null : Number(asset.average_cost),
-    totalCost: asset.total_cost === null ? null : Number(asset.total_cost),
+    totalCost,
     quantity: asset.quantity === null ? null : Number(asset.quantity)
   } satisfies PatrimonyAsset;
 }

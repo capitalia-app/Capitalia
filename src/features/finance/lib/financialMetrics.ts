@@ -9,7 +9,9 @@ export type MetricTransaction = {
   amount: number;
   description: string;
   direction: 'inflow' | 'outflow';
+  linkedTransactionId?: string | null;
   movementType: MovementType;
+  transactionType?: string | null;
 };
 
 export type MetricFilter = {
@@ -17,6 +19,8 @@ export type MetricFilter = {
   movementTypes: MovementType[];
   accountIds?: string[];
   direction?: 'inflow' | 'outflow';
+  wealthAccountIds?: string[];
+  wealthKeywords?: string[];
 };
 
 export type MonthlyFinancialMetrics = {
@@ -45,10 +49,10 @@ export function buildMetricFilter(metric: FinancialMetric, accounts: FinancialAc
 
   if (metric === 'savings') {
     return {
-      accountIds: getWealthBuildingAccountIds(accounts),
-      direction: 'inflow',
       metric,
-      movementTypes: ['investment', 'transfer']
+      movementTypes: ['transfer'],
+      wealthAccountIds: getWealthBuildingAccountIds(accounts),
+      wealthKeywords: getWealthBuildingKeywords(accounts)
     } satisfies MetricFilter;
   }
 
@@ -62,6 +66,10 @@ export function matchesMetricFilter(
   transaction: MetricTransaction,
   filter: MetricFilter
 ) {
+  if (filter.metric === 'savings') {
+    return matchesSavingsMetric(transaction, filter);
+  }
+
   if (!filter.movementTypes.includes(transaction.movementType)) {
     return false;
   }
@@ -83,7 +91,7 @@ export function sumMetricTransactions(
 ) {
   return transactions
     .filter((transaction) => matchesMetricFilter(transaction, filter))
-    .reduce((total, transaction) => total + getSignedAmount(transaction), 0);
+    .reduce((total, transaction) => total + getMetricAmount(transaction, filter), 0);
 }
 
 export function calculateMonthlyFinancialMetrics<TTransaction extends MetricTransaction>(
@@ -114,7 +122,8 @@ export function calculateMonthlyFinancialMetrics<TTransaction extends MetricTran
     }
 
     if (matchesMetricFilter(transaction, savingsFilter)) {
-      savings[month] = (savings[month] ?? 0) + getSignedAmount(transaction);
+      savings[month] =
+        (savings[month] ?? 0) + getMetricAmount(transaction, savingsFilter);
     }
   });
 
@@ -146,8 +155,69 @@ export function getSignedAmount(transaction: MetricTransaction) {
   return transaction.direction === 'inflow' ? amount : -amount;
 }
 
+export function getMetricAmount(transaction: MetricTransaction, filter: MetricFilter) {
+  if (filter.metric === 'savings') {
+    return Math.abs(transaction.amount);
+  }
+
+  return getSignedAmount(transaction);
+}
+
 export function getWealthBuildingAccountIds(accounts: FinancialAccount[]) {
   return accounts.filter(isWealthBuildingAccount).map((account) => account.id);
+}
+
+function matchesSavingsMetric(transaction: MetricTransaction, filter: MetricFilter) {
+  if (!filter.movementTypes.includes(transaction.movementType)) {
+    return false;
+  }
+
+  if (transaction.transactionType === 'asset_purchase') {
+    return false;
+  }
+
+  const wealthAccountIds = filter.wealthAccountIds ?? [];
+  const isWealthAccount = wealthAccountIds.includes(transaction.accountId);
+
+  if (transaction.direction === 'inflow' && isWealthAccount) {
+    return true;
+  }
+
+  if (transaction.direction !== 'outflow' || transaction.linkedTransactionId) {
+    return false;
+  }
+
+  const normalizedText = normalizeText(
+    `${transaction.description} ${transaction.accountName}`
+  );
+
+  return (filter.wealthKeywords ?? []).some((keyword) =>
+    normalizedText.includes(keyword)
+  );
+}
+
+function getWealthBuildingKeywords(accounts: FinancialAccount[]) {
+  const systemKeywords = [
+    'ahorro',
+    'broker',
+    'inversion',
+    'investment',
+    'wallet',
+    'myinvestor',
+    'binance',
+    'ledger',
+    'coinbase',
+    'trade republic',
+    'trading 212',
+    'kraken'
+  ];
+  const accountKeywords = accounts
+    .filter(isWealthBuildingAccount)
+    .flatMap((account) => [account.name, account.institutionName])
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map(normalizeText);
+
+  return [...new Set([...systemKeywords.map(normalizeText), ...accountKeywords])];
 }
 
 function isWealthBuildingAccount(account: FinancialAccount) {

@@ -1433,6 +1433,7 @@ function MovementsPanel({
     setEditState({
       accountId: movement.accountId,
       categoryId: movement.categoryId ?? '',
+      counterpartyAccountId: movement.linkedAccountId ?? '',
       isReviewed: movement.isReviewed,
       movementType: movement.movementType,
       notes: movement.notes ?? '',
@@ -1452,6 +1453,7 @@ function MovementsPanel({
       await updateMovement({
         accountId: editState.accountId,
         categoryId: editState.categoryId || null,
+        counterpartyAccountId: editState.counterpartyAccountId || null,
         description: selectedMovement.description,
         isReviewed: editState.isReviewed,
         movementType: editState.movementType,
@@ -1589,6 +1591,7 @@ type MovementEditState = {
   movementType: MovementType;
   categoryId: string;
   accountId: string;
+  counterpartyAccountId: string;
   notes: string;
   isReviewed: boolean;
   rememberRule: boolean;
@@ -1969,6 +1972,10 @@ function MovementEditorModal({
                 ? {
                     ...current,
                     categoryId: '',
+                    counterpartyAccountId:
+                      event.target.value === 'transfer'
+                        ? current.counterpartyAccountId
+                        : '',
                     movementType: event.target.value as MovementType
                   }
                 : current
@@ -2005,7 +2012,16 @@ function MovementEditorModal({
         <select
           onChange={(event) =>
             setEditState((current) =>
-              current ? { ...current, accountId: event.target.value } : current
+              current
+                ? {
+                    ...current,
+                    accountId: event.target.value,
+                    counterpartyAccountId:
+                      current.counterpartyAccountId === event.target.value
+                        ? ''
+                        : current.counterpartyAccountId
+                  }
+                : current
             )
           }
           value={editState.accountId}
@@ -2017,6 +2033,34 @@ function MovementEditorModal({
           ))}
         </select>
       </label>
+      {editState.movementType === 'transfer' ? (
+        <label>
+          <span>
+            {movement.direction === 'outflow'
+              ? 'Cuenta / plataforma destino'
+              : 'Cuenta / plataforma origen'}
+          </span>
+          <select
+            onChange={(event) =>
+              setEditState((current) =>
+                current
+                  ? { ...current, counterpartyAccountId: event.target.value }
+                  : current
+              )
+            }
+            value={editState.counterpartyAccountId}
+          >
+            <option value="">Pendiente de emparejar</option>
+            {accounts
+              .filter((account) => account.id !== editState.accountId)
+              .map((account) => (
+                <option key={account.id} value={account.id}>
+                  {getFinancialAccountLabel(account)}
+                </option>
+              ))}
+          </select>
+        </label>
+      ) : null}
       <label>
         <span>Notas</span>
         <textarea
@@ -2050,6 +2094,9 @@ function MovementEditorModal({
                   ? {
                       ...current,
                       categoryId: '',
+                      counterpartyAccountId: event.target.checked
+                        ? current.counterpartyAccountId
+                        : '',
                       movementType: event.target.checked
                         ? 'transfer'
                         : current.movementType === 'transfer'

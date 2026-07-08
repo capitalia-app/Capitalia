@@ -1284,6 +1284,62 @@ h1 {
   padding-top: 12px;
 }
 
+.container-actions--top {
+  margin: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.asset-editor-form {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.asset-editor-form label:has(textarea),
+.asset-editor-section {
+  grid-column: 1 / -1;
+}
+
+.asset-editor-section {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid rgba(244, 239, 228, 0.1);
+  padding-top: 12px;
+}
+
+.asset-editor-section strong {
+  color: var(--paper);
+}
+
+.asset-editor-section span,
+.modal-copy {
+  margin: 0;
+  color: rgba(244, 239, 228, 0.62);
+  line-height: 1.5;
+}
+
+.form-status {
+  margin: 0;
+  border: 1px solid rgba(244, 239, 228, 0.12);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: rgba(244, 239, 228, 0.68);
+  background: rgba(244, 239, 228, 0.07);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.form-status--error {
+  border-color: rgba(242, 111, 96, 0.35);
+  color: #ffb5aa;
+  background: rgba(242, 111, 96, 0.1);
+}
+
+.asset-detail-modal .app-modal__footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .settings-card {
   display: grid;
   gap: 14px;

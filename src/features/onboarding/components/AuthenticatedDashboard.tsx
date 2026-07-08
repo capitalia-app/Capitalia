@@ -48,9 +48,14 @@ import {
   type MovementReviewFilter
 } from '@/features/finance/lib/movements';
 import {
+  archiveFinancialContainer,
+  archivePatrimonyAsset,
   createPatrimonialStartingPoint,
   resetPatrimonialStartingPoint,
   resetWorkspaceFinancialData,
+  movePatrimonyAsset,
+  saveFinancialContainer,
+  savePatrimonyAsset,
   type AssetType,
   type ContainerType,
   type CreateStartingPointAssetInput,
@@ -287,6 +292,10 @@ export function AuthenticatedDashboard({
       <ContainersPanel
         summary={summary}
         onCreateStartingPoint={() => handleSelectSection('snapshot')}
+        onUpdated={(message) => {
+          setToastMessage(message);
+          void loadDashboard();
+        }}
       />
     );
   }
@@ -327,7 +336,15 @@ export function AuthenticatedDashboard({
   }
 
   if (activeSection === 'assets') {
-    sectionContent = <AssetsPanel summary={summary} />;
+    sectionContent = (
+      <AssetsPanel
+        summary={summary}
+        onUpdated={(message) => {
+          setToastMessage(message);
+          void loadDashboard();
+        }}
+      />
+    );
   }
 
   if (activeSection === 'goals') {
@@ -2485,15 +2502,66 @@ function CategoriesPanel({ summary }: CategoriesPanelProps) {
 
 type AssetsPanelProps = {
   summary: DashboardSummary | null;
+  onUpdated: (message: string) => void;
 };
 
 type ContainersPanelProps = {
   summary: DashboardSummary | null;
   onCreateStartingPoint: () => void;
+  onUpdated: (message: string) => void;
 };
 
-function ContainersPanel({ onCreateStartingPoint, summary }: ContainersPanelProps) {
+type ContainerFormState = {
+  id?: string;
+  institution: string;
+  name: string;
+  containerType: ContainerType;
+  currency: string;
+};
+
+type AssetFormState = {
+  id?: string;
+  containerId: string;
+  name: string;
+  assetType: AssetType;
+  currentValue: string;
+  currency: string;
+  quantity: string;
+  purchasePrice: string;
+  averageCost: string;
+  totalCost: string;
+  purchaseDate: string;
+  notes: string;
+};
+
+type AssetModalMode = 'create' | 'edit';
+
+function ContainersPanel({
+  onCreateStartingPoint,
+  onUpdated,
+  summary
+}: ContainersPanelProps) {
   const containers = summary?.containers ?? [];
+  const [editingContainer, setEditingContainer] = useState<FinancialContainer | null>(
+    null
+  );
+  const [assetInitialContainerId, setAssetInitialContainerId] = useState('');
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isAssetCreateOpen, setIsAssetCreateOpen] = useState(false);
+  const [deletingContainer, setDeletingContainer] = useState<FinancialContainer | null>(
+    null
+  );
+  const [panelError, setPanelError] = useState<string | null>(null);
+
+  function handleUpdated(message: string) {
+    setPanelError(null);
+    setEditingContainer(null);
+    setAssetInitialContainerId('');
+    setIsCreateOpen(false);
+    setIsAssetCreateOpen(false);
+    setDeletingContainer(null);
+    onUpdated(message);
+  }
 
   return (
     <section className="accounts-panel" aria-label="Cuentas y plataformas">
@@ -2507,12 +2575,34 @@ function ContainersPanel({ onCreateStartingPoint, summary }: ContainersPanelProp
           {formatMoney(sumContainerValues(containers), summary?.currency ?? 'EUR')}
         </strong>
       </div>
+      <div className="container-actions container-actions--top">
+        <button className="text-link" onClick={() => setIsCreateOpen(true)} type="button">
+          Anadir cuenta
+        </button>
+        {containers.length > 0 ? (
+          <button
+            className="text-link"
+            onClick={() => setIsAssetCreateOpen(true)}
+            type="button"
+          >
+            Anadir activo
+          </button>
+        ) : null}
+      </div>
+
+      {panelError ? <p className="form-status form-status--error">{panelError}</p> : null}
 
       {containers.length > 0 ? (
         <ContainerBreakdown
           containers={containers}
           currency={summary?.currency ?? 'EUR'}
           showActions
+          onAddAsset={(container) => {
+            setAssetInitialContainerId(container.id);
+            setIsAssetCreateOpen(true);
+          }}
+          onDeleteContainer={setDeletingContainer}
+          onEditContainer={setEditingContainer}
           title="Estructura patrimonial"
         />
       ) : (
@@ -2526,23 +2616,106 @@ function ContainersPanel({ onCreateStartingPoint, summary }: ContainersPanelProp
           </button>
         </div>
       )}
+
+      {isCreateOpen ? (
+        <ContainerEditorModal
+          currency={summary?.currency ?? 'EUR'}
+          onClose={() => setIsCreateOpen(false)}
+          onError={setPanelError}
+          onSaved={() => handleUpdated('Cuenta creada.')}
+          workspaceId={summary?.workspace.id}
+        />
+      ) : null}
+
+      {editingContainer ? (
+        <ContainerEditorModal
+          container={editingContainer}
+          currency={summary?.currency ?? 'EUR'}
+          onClose={() => setEditingContainer(null)}
+          onError={setPanelError}
+          onSaved={() => handleUpdated('Cuenta actualizada.')}
+          workspaceId={summary?.workspace.id}
+        />
+      ) : null}
+
+      {isAssetCreateOpen ? (
+        <AssetEditorModal
+          containers={containers}
+          initialContainerId={assetInitialContainerId || containers[0]?.id || ''}
+          mode="create"
+          onClose={() => {
+            setIsAssetCreateOpen(false);
+            setAssetInitialContainerId('');
+          }}
+          onError={setPanelError}
+          onSaved={() => handleUpdated('Activo creado.')}
+          workspaceId={summary?.workspace.id}
+        />
+      ) : null}
+
+      {deletingContainer ? (
+        <ConfirmArchiveContainerModal
+          container={deletingContainer}
+          onClose={() => setDeletingContainer(null)}
+          onError={setPanelError}
+          onSaved={() => handleUpdated('Cuenta archivada.')}
+          workspaceId={summary?.workspace.id}
+        />
+      ) : null}
     </section>
   );
 }
 
-function AssetsPanel({ summary }: AssetsPanelProps) {
+function AssetsPanel({ onUpdated, summary }: AssetsPanelProps) {
   const [selectedAsset, setSelectedAsset] = useState<PatrimonyAsset | null>(null);
+  const [editingAsset, setEditingAsset] = useState<PatrimonyAsset | null>(null);
+  const [movingAsset, setMovingAsset] = useState<PatrimonyAsset | null>(null);
+  const [deletingAsset, setDeletingAsset] = useState<PatrimonyAsset | null>(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [panelError, setPanelError] = useState<string | null>(null);
   const assets = getAllContainerAssets(summary?.containers ?? []);
   const groups = groupAssetsByType(assets);
   const currency = summary?.currency ?? 'EUR';
 
   if (assets.length === 0) {
     return (
-      <EmptySection
-        eyebrow="Activos"
-        title="Sin activos registrados"
-        copy="Configura tu punto de partida para ver activos agrupados por tipo."
-      />
+      <section className="empty-section" aria-label="Activos">
+        <div className="section-heading">
+          <p className="eyebrow">Activos</p>
+          <h2>Sin activos registrados</h2>
+          <span>Configura o crea activos reales para ver tu patrimonio por tipo.</span>
+        </div>
+        <button
+          className="text-link"
+          disabled={!summary?.workspace.id || summary.containers.length === 0}
+          onClick={() => setIsCreateOpen(true)}
+          type="button"
+        >
+          Anadir activo
+        </button>
+        {summary?.containers.length === 0 ? (
+          <p className="form-status">
+            Primero crea una cuenta o plataforma para alojar el activo.
+          </p>
+        ) : null}
+        {isCreateOpen ? (
+          <AssetEditorModal
+            containers={summary?.containers ?? []}
+            mode="create"
+            onClose={() => setIsCreateOpen(false)}
+            onError={setPanelError}
+            onSaved={() => {
+              setPanelError(null);
+              setIsCreateOpen(false);
+              onUpdated('Activo creado.');
+            }}
+            workspaceId={summary?.workspace.id}
+          />
+        ) : null}
+        {panelError ? (
+          <p className="form-status form-status--error">{panelError}</p>
+        ) : null}
+      </section>
     );
   }
 
@@ -2553,6 +2726,10 @@ function AssetsPanel({ summary }: AssetsPanelProps) {
         <h2>Mapa patrimonial</h2>
         <span>Agrupado por tipo de activo</span>
       </div>
+      <button className="text-link" onClick={() => setIsCreateOpen(true)} type="button">
+        Anadir activo
+      </button>
+      {panelError ? <p className="form-status form-status--error">{panelError}</p> : null}
 
       <div className="category-groups">
         {groups.map((group) => (
@@ -2579,7 +2756,7 @@ function AssetsPanel({ summary }: AssetsPanelProps) {
                     <span>{asset.provider ?? 'Sin plataforma'}</span>
                   </div>
                   <div className="asset-performance-summary">
-                    <strong>{formatMoney(asset.manualValue, asset.currency)}</strong>
+                    <strong>{getAssetCurrentValueLabel(asset)}</strong>
                     <small>{getAssetCostSummary(asset)}</small>
                   </div>
                 </button>
@@ -2590,18 +2767,706 @@ function AssetsPanel({ summary }: AssetsPanelProps) {
       </div>
 
       {selectedAsset ? (
-        <AssetDetailsModal asset={selectedAsset} onClose={() => setSelectedAsset(null)} />
+        <AssetDetailsModal
+          asset={selectedAsset}
+          onClose={() => setSelectedAsset(null)}
+          onDelete={() => {
+            setDeletingAsset(selectedAsset);
+            setSelectedAsset(null);
+          }}
+          onEdit={() => {
+            setEditingAsset(selectedAsset);
+            setSelectedAsset(null);
+          }}
+          onMove={() => {
+            setMovingAsset(selectedAsset);
+            setSelectedAsset(null);
+          }}
+        />
+      ) : null}
+
+      {isCreateOpen ? (
+        <AssetEditorModal
+          containers={summary?.containers ?? []}
+          mode="create"
+          onClose={() => setIsCreateOpen(false)}
+          onError={setPanelError}
+          onSaved={() => {
+            setPanelError(null);
+            setIsCreateOpen(false);
+            onUpdated('Activo creado.');
+          }}
+          workspaceId={summary?.workspace.id}
+        />
+      ) : null}
+
+      {editingAsset ? (
+        <AssetEditorModal
+          asset={editingAsset}
+          containers={summary?.containers ?? []}
+          mode="edit"
+          onClose={() => setEditingAsset(null)}
+          onError={setPanelError}
+          onSaved={() => {
+            setPanelError(null);
+            setEditingAsset(null);
+            onUpdated('Activo actualizado.');
+          }}
+          workspaceId={summary?.workspace.id}
+        />
+      ) : null}
+
+      {movingAsset ? (
+        <MoveAssetModal
+          asset={movingAsset}
+          containers={summary?.containers ?? []}
+          onClose={() => setMovingAsset(null)}
+          onError={setPanelError}
+          onSaved={() => {
+            setPanelError(null);
+            setMovingAsset(null);
+            onUpdated('Activo movido.');
+          }}
+          workspaceId={summary?.workspace.id}
+        />
+      ) : null}
+
+      {deletingAsset ? (
+        <ConfirmArchiveAssetModal
+          asset={deletingAsset}
+          onClose={() => setDeletingAsset(null)}
+          onError={setPanelError}
+          onSaved={() => {
+            setPanelError(null);
+            setDeletingAsset(null);
+            onUpdated('Activo archivado.');
+          }}
+          workspaceId={summary?.workspace.id}
+        />
       ) : null}
     </section>
   );
 }
 
-function AssetDetailsModal({
+function ContainerEditorModal({
+  container,
+  currency,
+  onClose,
+  onError,
+  onSaved,
+  workspaceId
+}: {
+  container?: FinancialContainer;
+  currency: string;
+  onClose: () => void;
+  onError: (message: string | null) => void;
+  onSaved: () => void;
+  workspaceId?: string;
+}) {
+  const [form, setForm] = useState<ContainerFormState>(() =>
+    createContainerForm(container, currency)
+  );
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleSubmit() {
+    if (!workspaceId) {
+      onError('No se ha podido identificar el workspace.');
+      return;
+    }
+
+    if (!form.name.trim()) {
+      onError('El nombre de la cuenta es obligatorio.');
+      return;
+    }
+
+    setIsSaving(true);
+    onError(null);
+
+    try {
+      await saveFinancialContainer({
+        containerType: form.containerType,
+        currency: form.currency || currency,
+        id: form.id,
+        institution: form.institution,
+        name: form.name,
+        workspaceId
+      });
+      onSaved();
+    } catch (containerError) {
+      onError(getErrorMessage(containerError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <AppModal
+      closeLabel="Cerrar cuenta"
+      contentClassName="account-form asset-editor-form"
+      eyebrow="Cuenta"
+      footer={
+        <>
+          <button
+            className="text-link"
+            disabled={isSaving}
+            onClick={onClose}
+            type="button"
+          >
+            Cancelar
+          </button>
+          <ActionButton
+            disabled={isSaving}
+            onClick={() => void handleSubmit()}
+            type="button"
+          >
+            {isSaving ? 'Guardando...' : 'Guardar'}
+          </ActionButton>
+        </>
+      }
+      onClose={onClose}
+      subtitle="Contenedor patrimonial sin saldo propio"
+      title={container ? 'Editar cuenta' : 'Anadir cuenta'}
+    >
+      <label>
+        <span>Entidad / plataforma</span>
+        <input
+          onChange={(event) =>
+            setForm((current) => ({ ...current, institution: event.target.value }))
+          }
+          placeholder="MyInvestor"
+          value={form.institution}
+        />
+      </label>
+      <label>
+        <span>Nombre</span>
+        <input
+          onChange={(event) =>
+            setForm((current) => ({ ...current, name: event.target.value }))
+          }
+          placeholder="Cuenta principal"
+          value={form.name}
+        />
+      </label>
+      <label>
+        <span>Tipo</span>
+        <select
+          onChange={(event) =>
+            setForm((current) => ({
+              ...current,
+              containerType: event.target.value as ContainerType
+            }))
+          }
+          value={form.containerType}
+        >
+          {containerTypes.map((type) => (
+            <option key={type.value} value={type.value}>
+              {type.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Moneda</span>
+        <input
+          maxLength={3}
+          onChange={(event) =>
+            setForm((current) => ({
+              ...current,
+              currency: event.target.value.toUpperCase()
+            }))
+          }
+          value={form.currency}
+        />
+      </label>
+    </AppModal>
+  );
+}
+
+function AssetEditorModal({
   asset,
-  onClose
+  containers,
+  initialContainerId,
+  mode,
+  onClose,
+  onError,
+  onSaved,
+  workspaceId
+}: {
+  asset?: PatrimonyAsset;
+  containers: FinancialContainer[];
+  initialContainerId?: string;
+  mode: AssetModalMode;
+  onClose: () => void;
+  onError: (message: string | null) => void;
+  onSaved: () => void;
+  workspaceId?: string;
+}) {
+  const [form, setForm] = useState<AssetFormState>(() =>
+    createAssetForm(asset, containers, initialContainerId)
+  );
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleSubmit() {
+    if (!workspaceId) {
+      onError('No se ha podido identificar el workspace.');
+      return;
+    }
+
+    if (!form.containerId) {
+      onError('Selecciona una cuenta o plataforma.');
+      return;
+    }
+
+    if (!form.name.trim()) {
+      onError('El nombre del activo es obligatorio.');
+      return;
+    }
+
+    const quantity = parseOptionalNumber(form.quantity);
+    const averageCost = parseOptionalNumber(form.averageCost);
+    const explicitTotalCost = parseOptionalNumber(form.totalCost);
+    const calculatedTotalCost =
+      quantity !== null && averageCost !== null ? quantity * averageCost : null;
+    const totalCost = explicitTotalCost ?? calculatedTotalCost;
+    const currentValue = parseOptionalNumber(form.currentValue);
+    const selectedContainer = containers.find(
+      (container) => container.id === form.containerId
+    );
+
+    setIsSaving(true);
+    onError(null);
+
+    try {
+      await savePatrimonyAsset({
+        assetType: form.assetType,
+        averageCost,
+        containerId: form.containerId,
+        currency: form.currency,
+        currentValue,
+        id: asset?.id,
+        name: form.name,
+        notes: form.notes,
+        purchaseDate: form.purchaseDate || null,
+        purchasePrice: parseOptionalNumber(form.purchasePrice),
+        provider: selectedContainer ? getContainerLabel(selectedContainer) : null,
+        quantity,
+        totalCost,
+        workspaceId
+      });
+      onSaved();
+    } catch (assetError) {
+      onError(getErrorMessage(assetError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <AppModal
+      closeLabel="Cerrar activo"
+      contentClassName="account-form asset-editor-form"
+      eyebrow="Activo"
+      footer={
+        <>
+          <button
+            className="text-link"
+            disabled={isSaving}
+            onClick={onClose}
+            type="button"
+          >
+            Cancelar
+          </button>
+          <ActionButton
+            disabled={isSaving}
+            onClick={() => void handleSubmit()}
+            type="button"
+          >
+            {isSaving ? 'Guardando...' : 'Guardar'}
+          </ActionButton>
+        </>
+      }
+      onClose={onClose}
+      subtitle="El valor actual se guarda como valoracion manual"
+      title={mode === 'edit' ? 'Editar activo' : 'Anadir activo'}
+    >
+      <label>
+        <span>Cuenta / plataforma</span>
+        <select
+          onChange={(event) =>
+            setForm((current) => ({ ...current, containerId: event.target.value }))
+          }
+          value={form.containerId}
+        >
+          <option value="">Selecciona cuenta</option>
+          {containers.map((container) => (
+            <option key={container.id} value={container.id}>
+              {getContainerLabel(container)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Nombre del activo</span>
+        <input
+          onChange={(event) =>
+            setForm((current) => ({ ...current, name: event.target.value }))
+          }
+          placeholder="Fidelity MSCI World"
+          value={form.name}
+        />
+      </label>
+      <label>
+        <span>Tipo</span>
+        <select
+          onChange={(event) =>
+            setForm((current) => ({
+              ...current,
+              assetType: event.target.value as AssetType
+            }))
+          }
+          value={form.assetType}
+        >
+          {assetTypes.map((type) => (
+            <option key={type.value} value={type.value}>
+              {type.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Valor actual</span>
+        <input
+          inputMode="decimal"
+          onChange={(event) =>
+            setForm((current) => ({ ...current, currentValue: event.target.value }))
+          }
+          placeholder="Valor pendiente si lo dejas vacio"
+          value={form.currentValue}
+        />
+      </label>
+      <label>
+        <span>Moneda</span>
+        <input
+          maxLength={3}
+          onChange={(event) =>
+            setForm((current) => ({
+              ...current,
+              currency: event.target.value.toUpperCase()
+            }))
+          }
+          value={form.currency}
+        />
+      </label>
+      <div className="asset-editor-section">
+        <strong>Datos de compra</strong>
+        <span>Opcionales para calcular beneficio y rentabilidad.</span>
+      </div>
+      <label>
+        <span>Cantidad</span>
+        <input
+          inputMode="decimal"
+          onChange={(event) =>
+            setForm((current) => ({ ...current, quantity: event.target.value }))
+          }
+          value={form.quantity}
+        />
+      </label>
+      <label>
+        <span>Precio medio de compra</span>
+        <input
+          inputMode="decimal"
+          onChange={(event) =>
+            setForm((current) => ({ ...current, averageCost: event.target.value }))
+          }
+          value={form.averageCost}
+        />
+      </label>
+      <label>
+        <span>Coste total invertido</span>
+        <input
+          inputMode="decimal"
+          onChange={(event) =>
+            setForm((current) => ({ ...current, totalCost: event.target.value }))
+          }
+          value={form.totalCost}
+        />
+      </label>
+      <label>
+        <span>Fecha de compra aproximada</span>
+        <input
+          onChange={(event) =>
+            setForm((current) => ({ ...current, purchaseDate: event.target.value }))
+          }
+          type="date"
+          value={form.purchaseDate}
+        />
+      </label>
+      <label>
+        <span>Notas</span>
+        <textarea
+          onChange={(event) =>
+            setForm((current) => ({ ...current, notes: event.target.value }))
+          }
+          value={form.notes}
+        />
+      </label>
+    </AppModal>
+  );
+}
+
+function MoveAssetModal({
+  asset,
+  containers,
+  onClose,
+  onError,
+  onSaved,
+  workspaceId
+}: {
+  asset: PatrimonyAsset;
+  containers: FinancialContainer[];
+  onClose: () => void;
+  onError: (message: string | null) => void;
+  onSaved: () => void;
+  workspaceId?: string;
+}) {
+  const [containerId, setContainerId] = useState(asset.containerId ?? '');
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleMove() {
+    if (!workspaceId) {
+      onError('No se ha podido identificar el workspace.');
+      return;
+    }
+
+    if (!containerId) {
+      onError('Selecciona la cuenta destino.');
+      return;
+    }
+
+    setIsSaving(true);
+    onError(null);
+
+    try {
+      await movePatrimonyAsset({
+        assetId: asset.id,
+        containerId,
+        workspaceId
+      });
+      onSaved();
+    } catch (moveError) {
+      onError(getErrorMessage(moveError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <AppModal
+      closeLabel="Cerrar mover activo"
+      contentClassName="account-form"
+      eyebrow="Mover activo"
+      footer={
+        <>
+          <button
+            className="text-link"
+            disabled={isSaving}
+            onClick={onClose}
+            type="button"
+          >
+            Cancelar
+          </button>
+          <ActionButton
+            disabled={isSaving}
+            onClick={() => void handleMove()}
+            type="button"
+          >
+            {isSaving ? 'Moviendo...' : 'Mover'}
+          </ActionButton>
+        </>
+      }
+      onClose={onClose}
+      subtitle={asset.name}
+      title="Cambiar cuenta destino"
+    >
+      <label>
+        <span>Cuenta / plataforma</span>
+        <select
+          onChange={(event) => setContainerId(event.target.value)}
+          value={containerId}
+        >
+          <option value="">Selecciona cuenta</option>
+          {containers.map((container) => (
+            <option key={container.id} value={container.id}>
+              {getContainerLabel(container)}
+            </option>
+          ))}
+        </select>
+      </label>
+    </AppModal>
+  );
+}
+
+function ConfirmArchiveAssetModal({
+  asset,
+  onClose,
+  onError,
+  onSaved,
+  workspaceId
 }: {
   asset: PatrimonyAsset;
   onClose: () => void;
+  onError: (message: string | null) => void;
+  onSaved: () => void;
+  workspaceId?: string;
+}) {
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleArchive() {
+    if (!workspaceId) {
+      onError('No se ha podido identificar el workspace.');
+      return;
+    }
+
+    setIsSaving(true);
+    onError(null);
+
+    try {
+      await archivePatrimonyAsset({ assetId: asset.id, workspaceId });
+      onSaved();
+    } catch (archiveError) {
+      onError(getErrorMessage(archiveError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <AppModal
+      closeLabel="Cerrar eliminacion"
+      eyebrow="Eliminar"
+      footer={
+        <>
+          <button
+            className="text-link"
+            disabled={isSaving}
+            onClick={onClose}
+            type="button"
+          >
+            Cancelar
+          </button>
+          <ActionButton
+            disabled={isSaving}
+            onClick={() => void handleArchive()}
+            type="button"
+          >
+            {isSaving ? 'Archivando...' : 'Archivar activo'}
+          </ActionButton>
+        </>
+      }
+      onClose={onClose}
+      subtitle="No se borra fisicamente: queda archivado con deleted_at."
+      title={asset.name}
+    >
+      <p className="modal-copy">
+        Este activo dejara de aparecer en Cuentas y Activos, pero el registro se conserva
+        para mantener trazabilidad.
+      </p>
+    </AppModal>
+  );
+}
+
+function ConfirmArchiveContainerModal({
+  container,
+  onClose,
+  onError,
+  onSaved,
+  workspaceId
+}: {
+  container: FinancialContainer;
+  onClose: () => void;
+  onError: (message: string | null) => void;
+  onSaved: () => void;
+  workspaceId?: string;
+}) {
+  const [isSaving, setIsSaving] = useState(false);
+  const hasAssets = container.assets.length > 0;
+
+  async function handleArchive() {
+    if (!workspaceId) {
+      onError('No se ha podido identificar el workspace.');
+      return;
+    }
+
+    setIsSaving(true);
+    onError(null);
+
+    try {
+      await archiveFinancialContainer({
+        containerId: container.id,
+        workspaceId
+      });
+      onSaved();
+    } catch (archiveError) {
+      onError(getErrorMessage(archiveError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <AppModal
+      closeLabel="Cerrar eliminacion"
+      eyebrow="Eliminar cuenta"
+      footer={
+        <>
+          <button
+            className="text-link"
+            disabled={isSaving}
+            onClick={onClose}
+            type="button"
+          >
+            Cancelar
+          </button>
+          <ActionButton
+            disabled={isSaving}
+            onClick={() => void handleArchive()}
+            type="button"
+          >
+            {isSaving ? 'Archivando...' : 'Archivar cuenta'}
+          </ActionButton>
+        </>
+      }
+      onClose={onClose}
+      subtitle="Se archivara con deleted_at, no se eliminara fisicamente."
+      title={getContainerLabel(container)}
+    >
+      <p className="modal-copy">
+        Esta cuenta dejara de mostrarse en la app. Si tiene movimientos importados o
+        activos asociados, se conserva el historico y no se borra informacion financiera.
+      </p>
+      {hasAssets ? (
+        <p className="form-status form-status--error">
+          Contiene {container.assets.length}{' '}
+          {container.assets.length === 1 ? 'activo asociado' : 'activos asociados'}.
+          Archivar la cuenta tambien ocultara esos activos de la vista agrupada.
+        </p>
+      ) : null}
+    </AppModal>
+  );
+}
+
+function AssetDetailsModal({
+  asset,
+  onClose,
+  onDelete,
+  onEdit,
+  onMove
+}: {
+  asset: PatrimonyAsset;
+  onClose: () => void;
+  onDelete: () => void;
+  onEdit: () => void;
+  onMove: () => void;
 }) {
   const performance = getAssetPerformance(asset);
 
@@ -2611,19 +3476,27 @@ function AssetDetailsModal({
       closeLabel="Cerrar detalle de activo"
       eyebrow="Activo"
       footer={
-        <button className="text-link" onClick={onClose} type="button">
-          Cerrar
-        </button>
+        <>
+          <button className="text-link" onClick={onEdit} type="button">
+            Editar
+          </button>
+          <button className="text-link" onClick={onMove} type="button">
+            Mover activo
+          </button>
+          <button className="text-link" onClick={onDelete} type="button">
+            Eliminar
+          </button>
+          <button className="text-link" onClick={onClose} type="button">
+            Cerrar
+          </button>
+        </>
       }
       onClose={onClose}
       subtitle={`${asset.provider ?? 'Sin plataforma'} - ${getAssetTypeLabel(asset.assetType)}`}
       title={asset.name}
     >
       <div className="asset-detail-grid">
-        <MetricCard
-          label="Valor actual"
-          value={formatMoney(asset.manualValue, asset.currency)}
-        />
+        <MetricCard label="Valor actual" value={getAssetCurrentValueLabel(asset)} />
         <MetricCard
           label="Coste total"
           value={
@@ -2635,17 +3508,21 @@ function AssetDetailsModal({
         <MetricCard
           label="Beneficio"
           value={
-            performance.profit === null
-              ? 'Coste no informado'
-              : formatMoney(performance.profit, asset.currency)
+            !hasAssetCurrentValue(asset)
+              ? 'Valor pendiente'
+              : performance.profit === null
+                ? 'Coste no informado'
+                : formatMoney(performance.profit, asset.currency)
           }
         />
         <MetricCard
           label="Rentabilidad"
           value={
-            performance.returnPercentage === null
-              ? 'Coste no informado'
-              : formatPercentage(performance.returnPercentage)
+            !hasAssetCurrentValue(asset)
+              ? 'Valor pendiente'
+              : performance.returnPercentage === null
+                ? 'Coste no informado'
+                : formatPercentage(performance.returnPercentage)
           }
         />
       </div>
@@ -2671,11 +3548,17 @@ function AssetDetailsModal({
 function ContainerBreakdown({
   containers,
   currency,
+  onAddAsset,
+  onDeleteContainer,
+  onEditContainer,
   showActions = false,
   title
 }: {
   containers: FinancialContainer[];
   currency: string;
+  onAddAsset?: (container: FinancialContainer) => void;
+  onDeleteContainer?: (container: FinancialContainer) => void;
+  onEditContainer?: (container: FinancialContainer) => void;
   showActions?: boolean;
   title: string;
 }) {
@@ -2710,7 +3593,7 @@ function ContainerBreakdown({
                       <span>{getAssetTypeLabel(asset.assetType)}</span>
                     </div>
                     <div className="asset-performance-summary">
-                      <strong>{formatMoney(asset.manualValue, asset.currency)}</strong>
+                      <strong>{getAssetCurrentValueLabel(asset)}</strong>
                       <small>{getAssetCostSummary(asset)}</small>
                     </div>
                   </article>
@@ -2725,16 +3608,25 @@ function ContainerBreakdown({
 
             {showActions ? (
               <div className="container-actions" aria-label="Gestion del contenedor">
-                <button className="text-link" type="button">
+                <button
+                  className="text-link"
+                  onClick={() => onEditContainer?.(container)}
+                  type="button"
+                >
                   Editar
                 </button>
-                <button className="text-link" type="button">
+                <button
+                  className="text-link"
+                  onClick={() => onAddAsset?.(container)}
+                  type="button"
+                >
                   Anadir activo
                 </button>
-                <button className="text-link" type="button">
-                  Mover activo
-                </button>
-                <button className="text-link" type="button">
+                <button
+                  className="text-link"
+                  onClick={() => onDeleteContainer?.(container)}
+                  type="button"
+                >
                   Eliminar
                 </button>
               </div>
@@ -3919,9 +4811,30 @@ function parseOptionalNumber(value: string) {
     return null;
   }
 
-  const parsed = Number(value);
+  const normalizedValue = normalizeNumberInput(value);
+  const parsed = Number(normalizedValue);
 
   return Number.isFinite(parsed) ? Math.abs(parsed) : null;
+}
+
+function normalizeNumberInput(value: string) {
+  const trimmed = value.trim().replace(/\s/g, '');
+  const hasComma = trimmed.includes(',');
+  const hasDot = trimmed.includes('.');
+
+  if (hasComma && hasDot) {
+    return trimmed.replace(/\./g, '').replace(',', '.');
+  }
+
+  if (hasComma) {
+    return trimmed.replace(',', '.');
+  }
+
+  if (/^\d{1,3}(\.\d{3})+$/.test(trimmed)) {
+    return trimmed.replace(/\./g, '');
+  }
+
+  return trimmed;
 }
 
 function getDraftAssetTotalCost(item: DraftAsset) {
@@ -4017,14 +4930,59 @@ function formatPercentage(value: number) {
   }).format(value / 100);
 }
 
+function createContainerForm(
+  container: FinancialContainer | undefined,
+  currency: string
+): ContainerFormState {
+  return {
+    containerType: container?.containerType ?? 'bank',
+    currency: container?.currency ?? currency,
+    id: container?.id,
+    institution: container?.institution ?? '',
+    name: container?.name ?? ''
+  };
+}
+
+function createAssetForm(
+  asset: PatrimonyAsset | undefined,
+  containers: FinancialContainer[],
+  initialContainerId?: string
+): AssetFormState {
+  return {
+    assetType: asset?.assetType ?? 'fund',
+    containerId: asset?.containerId ?? initialContainerId ?? containers[0]?.id ?? '',
+    currency: asset?.currency ?? containers[0]?.currency ?? 'EUR',
+    currentValue:
+      asset && hasAssetCurrentValue(asset) ? String(Math.abs(asset.manualValue)) : '',
+    id: asset?.id,
+    name: asset?.name ?? '',
+    notes: asset?.notes ?? '',
+    purchaseDate: asset?.purchaseDate ?? '',
+    purchasePrice:
+      asset?.purchasePrice === null ? '' : String(asset?.purchasePrice ?? ''),
+    averageCost: asset?.averageCost === null ? '' : String(asset?.averageCost ?? ''),
+    quantity: asset?.quantity === null ? '' : String(asset?.quantity ?? ''),
+    totalCost: asset?.totalCost === null ? '' : String(asset?.totalCost ?? '')
+  };
+}
+
 function getAssetPerformance(asset: PatrimonyAsset) {
   const totalCost = asset.totalCost;
+  const hasCurrentValue = hasAssetCurrentValue(asset);
 
   if (!totalCost || totalCost <= 0) {
     return {
       profit: null,
       returnPercentage: null,
       totalCost: null
+    };
+  }
+
+  if (!hasCurrentValue) {
+    return {
+      profit: null,
+      returnPercentage: null,
+      totalCost
     };
   }
 
@@ -4037,8 +4995,24 @@ function getAssetPerformance(asset: PatrimonyAsset) {
   };
 }
 
+function hasAssetCurrentValue(asset: PatrimonyAsset) {
+  return asset.hasCurrentValuation || Math.abs(asset.manualValue) > 0;
+}
+
+function getAssetCurrentValueLabel(asset: PatrimonyAsset) {
+  if (!hasAssetCurrentValue(asset)) {
+    return 'Valor pendiente';
+  }
+
+  return formatMoney(asset.manualValue, asset.currency);
+}
+
 function getAssetCostSummary(asset: PatrimonyAsset) {
   const performance = getAssetPerformance(asset);
+
+  if (performance.totalCost !== null && !hasAssetCurrentValue(asset)) {
+    return `Coste invertido: ${formatMoney(performance.totalCost, asset.currency)}`;
+  }
 
   if (performance.totalCost === null || performance.profit === null) {
     return asset.quantity

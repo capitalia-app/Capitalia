@@ -35,6 +35,8 @@ export type PatrimonyAsset = {
   legacyType: string;
   currency: string;
   quantity: number | null;
+  currentValue: number | null;
+  hasCurrentValuation: boolean;
   manualValue: number;
   purchasePrice: number | null;
   averageCost: number | null;
@@ -117,6 +119,7 @@ export type CreateStartingPointAssetInput = {
   averageCost?: number | null;
   totalCost?: number | null;
   purchaseDate?: string | null;
+  provider?: string | null;
   notes?: string | null;
 };
 
@@ -128,6 +131,32 @@ export type CreateStartingPointInput = {
   containers: CreateStartingPointContainerInput[];
   assets: CreateStartingPointAssetInput[];
   debts: CreateStartingPointAssetInput[];
+};
+
+export type SaveFinancialContainerInput = {
+  id?: string;
+  workspaceId: string;
+  name: string;
+  institution?: string | null;
+  containerType: ContainerType;
+  currency: string;
+};
+
+export type SavePatrimonyAssetInput = {
+  id?: string;
+  workspaceId: string;
+  containerId: string | null;
+  name: string;
+  assetType: AssetType;
+  currency: string;
+  currentValue?: number | null;
+  quantity?: number | null;
+  purchasePrice?: number | null;
+  averageCost?: number | null;
+  totalCost?: number | null;
+  purchaseDate?: string | null;
+  provider?: string | null;
+  notes?: string | null;
 };
 
 type SnapshotRecord = {
@@ -182,6 +211,13 @@ type AssetRecord = {
   notes: string | null;
 };
 
+type AssetValuationRecord = {
+  asset_id: string;
+  value: number | string;
+  currency: string;
+  valued_at: string;
+};
+
 export async function getLatestPatrimonialSnapshot(workspaceId: string) {
   if (!supabase) {
     throw new Error('Supabase no esta configurado.');
@@ -228,6 +264,7 @@ export async function listFinancialContainers(workspaceId: string) {
     .from('financial_containers')
     .select('id, workspace_id, name, institution, container_type, currency')
     .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
     .order('created_at', { ascending: true })
     .returns<ContainerRecord[]>();
 
@@ -249,20 +286,26 @@ export async function listFinancialContainers(workspaceId: string) {
     throw assetsError;
   }
 
+  const latestValuations = await getLatestAssetValuations(
+    workspaceId,
+    assets.map((asset) => asset.id)
+  );
   const assetsByContainer = new Map<string, PatrimonyAsset[]>();
   const unassignedAssets: PatrimonyAsset[] = [];
 
-  assets.map(mapAssetRecord).forEach((asset) => {
-    if (!asset.containerId) {
-      unassignedAssets.push(asset);
-      return;
-    }
+  assets
+    .map((asset) => mapAssetRecord(asset, latestValuations.get(asset.id)))
+    .forEach((asset) => {
+      if (!asset.containerId) {
+        unassignedAssets.push(asset);
+        return;
+      }
 
-    assetsByContainer.set(asset.containerId, [
-      ...(assetsByContainer.get(asset.containerId) ?? []),
-      asset
-    ]);
-  });
+      assetsByContainer.set(asset.containerId, [
+        ...(assetsByContainer.get(asset.containerId) ?? []),
+        asset
+      ]);
+    });
 
   const mappedContainers = containers.map((container) => {
     const containerAssets = assetsByContainer.get(container.id) ?? [];
@@ -293,6 +336,155 @@ export async function listFinancialContainers(workspaceId: string) {
   }
 
   return mappedContainers;
+}
+
+export async function saveFinancialContainer(input: SaveFinancialContainerInput) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const payload = {
+    container_type: input.containerType,
+    currency: input.currency.toUpperCase(),
+    institution: normalizeOptionalText(input.institution) ?? input.name.trim(),
+    name: input.name.trim(),
+    workspace_id: input.workspaceId
+  };
+
+  if (input.id) {
+    const { error } = await supabase
+      .from('financial_containers')
+      .update(payload)
+      .eq('id', input.id)
+      .eq('workspace_id', input.workspaceId);
+
+    if (error) {
+      throw error;
+    }
+
+    return input.id;
+  }
+
+  const { data, error } = await supabase
+    .from('financial_containers')
+    .insert(payload)
+    .select('id')
+    .single<{ id: string }>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data.id;
+}
+
+export async function archiveFinancialContainer(input: {
+  workspaceId: string;
+  containerId: string;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const { error } = await supabase
+    .from('financial_containers')
+    .update({
+      deleted_at: new Date().toISOString()
+    })
+    .eq('id', input.containerId)
+    .eq('workspace_id', input.workspaceId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function savePatrimonyAsset(input: SavePatrimonyAssetInput) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const currentValue =
+    typeof input.currentValue === 'number' && Number.isFinite(input.currentValue)
+      ? Math.abs(input.currentValue)
+      : null;
+  const payload = {
+    asset_type: input.assetType,
+    container_id: input.containerId,
+    currency: input.currency.toUpperCase(),
+    manual_value: currentValue ?? 0,
+    metadata: {},
+    name: input.name.trim(),
+    notes: normalizeOptionalText(input.notes),
+    provider: normalizeOptionalText(input.provider),
+    quantity: input.quantity ?? null,
+    purchase_price: input.purchasePrice ?? null,
+    average_cost: input.averageCost ?? null,
+    total_cost: input.totalCost ?? null,
+    purchase_date: normalizeOptionalText(input.purchaseDate),
+    status: 'active' as const,
+    type: mapAssetTypeToLegacyType(input.assetType),
+    workspace_id: input.workspaceId
+  };
+
+  const assetId = input.id
+    ? await updatePatrimonyAsset(input.workspaceId, input.id, payload)
+    : await insertPatrimonyAsset(payload);
+
+  if (currentValue !== null) {
+    await saveAssetValuation({
+      assetId,
+      currency: input.currency,
+      value: currentValue,
+      workspaceId: input.workspaceId
+    });
+  }
+
+  return assetId;
+}
+
+export async function movePatrimonyAsset(input: {
+  workspaceId: string;
+  assetId: string;
+  containerId: string | null;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const { error } = await supabase
+    .from('assets')
+    .update({
+      container_id: input.containerId
+    })
+    .eq('id', input.assetId)
+    .eq('workspace_id', input.workspaceId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function archivePatrimonyAsset(input: {
+  workspaceId: string;
+  assetId: string;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const { error } = await supabase
+    .from('assets')
+    .update({
+      deleted_at: new Date().toISOString(),
+      status: 'archived'
+    })
+    .eq('id', input.assetId)
+    .eq('workspace_id', input.workspaceId);
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function createPatrimonialSnapshot(input: {
@@ -659,7 +851,142 @@ async function ensureAsset(input: {
     throw error;
   }
 
+  if (input.value > 0) {
+    await saveAssetValuation({
+      assetId: data.id,
+      currency: input.currency,
+      value: Math.abs(input.value),
+      workspaceId: input.workspaceId
+    });
+  }
+
   return data.id;
+}
+
+async function getLatestAssetValuations(workspaceId: string, assetIds: string[]) {
+  const valuations = new Map<string, AssetValuationRecord>();
+
+  if (!supabase || assetIds.length === 0) {
+    return valuations;
+  }
+
+  const { data, error } = await supabase
+    .from('asset_valuations')
+    .select('asset_id, value, currency, valued_at')
+    .eq('workspace_id', workspaceId)
+    .in('asset_id', assetIds)
+    .order('valued_at', { ascending: false })
+    .returns<AssetValuationRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  data.forEach((valuation) => {
+    if (!valuations.has(valuation.asset_id)) {
+      valuations.set(valuation.asset_id, valuation);
+    }
+  });
+
+  return valuations;
+}
+
+async function insertPatrimonyAsset(payload: {
+  asset_type: AssetType;
+  container_id: string | null;
+  currency: string;
+  manual_value: number;
+  metadata: Record<string, never>;
+  name: string;
+  notes: string | null;
+  provider: string | null;
+  quantity: number | null;
+  purchase_price: number | null;
+  average_cost: number | null;
+  total_cost: number | null;
+  purchase_date: string | null;
+  status: 'active';
+  type: 'cash' | 'security' | 'crypto' | 'real_estate' | 'vehicle' | 'other';
+  workspace_id: string;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const { data, error } = await supabase
+    .from('assets')
+    .insert(payload)
+    .select('id')
+    .single<{ id: string }>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data.id;
+}
+
+async function updatePatrimonyAsset(
+  workspaceId: string,
+  assetId: string,
+  payload: {
+    asset_type: AssetType;
+    container_id: string | null;
+    currency: string;
+    manual_value: number;
+    metadata: Record<string, never>;
+    name: string;
+    notes: string | null;
+    provider: string | null;
+    quantity: number | null;
+    purchase_price: number | null;
+    average_cost: number | null;
+    total_cost: number | null;
+    purchase_date: string | null;
+    status: 'active';
+    type: 'cash' | 'security' | 'crypto' | 'real_estate' | 'vehicle' | 'other';
+    workspace_id: string;
+  }
+) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const { error } = await supabase
+    .from('assets')
+    .update(payload)
+    .eq('id', assetId)
+    .eq('workspace_id', workspaceId);
+
+  if (error) {
+    throw error;
+  }
+
+  return assetId;
+}
+
+async function saveAssetValuation(input: {
+  workspaceId: string;
+  assetId: string;
+  value: number;
+  currency: string;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const { error } = await supabase.from('asset_valuations').insert({
+    asset_id: input.assetId,
+    currency: input.currency.toUpperCase(),
+    source: 'manual',
+    value: input.value,
+    valued_at: new Date().toISOString(),
+    workspace_id: input.workspaceId
+  });
+
+  if (error) {
+    throw error;
+  }
 }
 
 async function ensureFinancialContainer(input: {
@@ -778,14 +1105,19 @@ function isEmptyContainerSnapshotItem(item: PatrimonialSnapshotItem) {
   return isAccountSnapshotItem(item.type) && item.value === 0 && !item.linkedAssetId;
 }
 
-function mapAssetRecord(asset: AssetRecord) {
+function mapAssetRecord(asset: AssetRecord, latestValuation?: AssetValuationRecord) {
   const assetType = asset.asset_type ?? mapLegacyAssetTypeToAssetType(asset.type);
-  const value = Number(asset.manual_value ?? 0);
+  const storedValue = Number(asset.manual_value ?? 0);
+  const valuationValue =
+    latestValuation?.value === undefined ? null : Number(latestValuation.value);
+  const value = valuationValue ?? storedValue;
 
   return {
     assetType,
     containerId: asset.container_id,
     currency: asset.currency,
+    currentValue: valuationValue,
+    hasCurrentValuation: valuationValue !== null,
     id: asset.id,
     legacyType: asset.type,
     manualValue: assetType === 'liability' ? -Math.abs(value) : Math.abs(value),

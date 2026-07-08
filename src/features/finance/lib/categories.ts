@@ -204,6 +204,50 @@ export async function saveCategoryRule(input: SaveCategoryRuleInput) {
   if (error) {
     throw error;
   }
+
+  await applyCategoryRuleToExistingTransactions({
+    categoryId: input.categoryId,
+    keyword: input.keyword,
+    workspaceId: input.workspaceId
+  });
+}
+
+export async function applyCategoryRuleToExistingTransactions(input: {
+  workspaceId: string;
+  keyword: string;
+  categoryId: string;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const keyword = input.keyword.trim();
+
+  if (!keyword) {
+    return;
+  }
+
+  const categories = await listTransactionCategories(input.workspaceId);
+  const category = categories.find((candidate) => candidate.id === input.categoryId);
+
+  if (!category) {
+    throw new Error('Categoria no encontrada.');
+  }
+
+  const { error } = await supabase
+    .from('transactions')
+    .update({
+      category_id: category.id,
+      is_reviewed: true,
+      movement_type: category.movementType,
+      transaction_type: mapMovementTypeToTransactionType(category.movementType)
+    })
+    .eq('workspace_id', input.workspaceId)
+    .ilike('description', `%${escapeIlikePattern(keyword)}%`);
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function deleteCategoryRule(input: { workspaceId: string; ruleId: string }) {
@@ -466,6 +510,10 @@ function getCategoryByName(
   movementType: MovementType
 ) {
   return categoriesByName.get(`${normalizeForMatch(name)}|${movementType}`) ?? null;
+}
+
+function escapeIlikePattern(value: string) {
+  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
 export function deriveRuleKeyword(description: string) {

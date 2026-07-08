@@ -774,6 +774,53 @@ h1 {
   gap: 10px;
 }
 
+.savings-platform-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.savings-platform-card {
+  display: grid;
+  gap: 12px;
+}
+
+.savings-platform-card__header {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.4fr) repeat(2, minmax(120px, 1fr));
+  gap: 10px;
+  align-items: stretch;
+  border: 1px solid rgba(244, 239, 228, 0.12);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(244, 239, 228, 0.08);
+}
+
+.savings-platform-card__header h3 {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  color: var(--paper);
+  font-size: 1rem;
+}
+
+.savings-platform-card__header div {
+  display: grid;
+  gap: 3px;
+  justify-items: end;
+}
+
+.savings-platform-card__header span {
+  color: rgba(244, 239, 228, 0.58);
+  font-size: 0.68rem;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.savings-platform-card__header strong {
+  color: var(--gold-soft);
+  font-size: 1rem;
+}
+
 .import-entry-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

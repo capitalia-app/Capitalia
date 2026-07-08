@@ -53,6 +53,15 @@ export type SavingsSummary = {
   destinationRows: AnnualTableRow[];
   platformRows: AnnualTableRow[];
   assetPurchaseRows: AnnualTableRow[];
+  platformBlocks: SavingsPlatformBlock[];
+};
+
+export type SavingsPlatformBlock = {
+  platform: string;
+  currentCash: number;
+  totalInvestment: number;
+  totalValue: number;
+  assetRows: AnnualTableRow[];
 };
 
 export type AnnualTransferRow = {
@@ -168,7 +177,12 @@ export async function getAnnualControlSummary(input: {
   const incomeRows = buildIncomeRows(annualTransactions, input.year);
   const expenseRows = buildExpenseRows(annualTransactions, input.year);
   const veramar = buildVeramarSummary(annualTransactions, input.year);
-  const savings = buildSavingsSummary(annualTransactions, input.year, accounts);
+  const savings = buildSavingsSummary(
+    annualTransactions,
+    input.year,
+    accounts,
+    input.summary.containers
+  );
   const yearSet = new Set([...availableYears, input.year]);
 
   return {
@@ -498,7 +512,8 @@ function buildVeramarSummary(transactions: AnnualTransaction[], year: number) {
 function buildSavingsSummary(
   transactions: AnnualTransaction[],
   year: number,
-  accounts: FinancialAccount[]
+  accounts: FinancialAccount[],
+  containers: DashboardSummary['containers']
 ) {
   const savingsFilter = buildMetricFilter('savings', accounts);
   const savingsTransactions = transactions.filter((transaction) =>
@@ -509,7 +524,7 @@ function buildSavingsSummary(
       transaction.movementType === 'investment' ||
       transaction.transactionType === 'asset_purchase'
   );
-  const destinations = ['BBVA', 'MyInvestor', 'Binance', 'Ledger'];
+  const destinations = getSavingsDestinations(savingsTransactions);
 
   return {
     assetPurchaseRows: buildAssetPurchaseRows(assetPurchaseTransactions, year),
@@ -525,7 +540,7 @@ function buildSavingsSummary(
       )
     ),
     platformRows: destinations
-      .filter((destination) => destination !== 'BBVA')
+      .filter((destination) => !isMainBankDestination(destination))
       .map((destination) =>
         buildRuleRow(
           `platform-${destination}`,
@@ -537,6 +552,14 @@ function buildSavingsSummary(
           'savings'
         )
       ),
+    platformBlocks: buildSavingsPlatformBlocks({
+      assetPurchaseTransactions,
+      containers,
+      platforms: destinations.filter(
+        (destination) => !isMainBankDestination(destination)
+      ),
+      year
+    }),
     transferRows: savingsTransactions.map((transaction) => ({
       amount: Math.abs(transaction.amount),
       currency: transaction.currency,
@@ -547,6 +570,44 @@ function buildSavingsSummary(
       origin: transaction.accountName
     }))
   } satisfies SavingsSummary;
+}
+
+function getSavingsDestinations(transactions: AnnualTransaction[]) {
+  const destinations = transactions.map(getTransferDestination).filter(Boolean);
+
+  return [...new Set(destinations)].sort((left, right) => left.localeCompare(right));
+}
+
+function buildSavingsPlatformBlocks(input: {
+  platforms: string[];
+  containers: DashboardSummary['containers'];
+  assetPurchaseTransactions: AnnualTransaction[];
+  year: number;
+}) {
+  return input.platforms.map((platform) => {
+    const container = input.containers.find((candidate) =>
+      normalizeText(getContainerLabel(candidate)).includes(normalizeText(platform))
+    );
+    const assets = container?.assets ?? [];
+    const cashAssets = assets.filter((asset) => asset.assetType === 'cash');
+    const investmentAssets = assets.filter(
+      (asset) => asset.assetType !== 'cash' && asset.assetType !== 'liability'
+    );
+    const platformPurchases = input.assetPurchaseTransactions.filter((transaction) =>
+      transaction.searchText.includes(normalizeText(platform))
+    );
+
+    return {
+      assetRows: buildAssetPurchaseRows(platformPurchases, input.year),
+      currentCash: cashAssets.reduce((total, asset) => total + asset.manualValue, 0),
+      platform,
+      totalInvestment: investmentAssets.reduce(
+        (total, asset) => total + (asset.totalCost ?? asset.manualValue),
+        0
+      ),
+      totalValue: assets.reduce((total, asset) => total + asset.manualValue, 0)
+    } satisfies SavingsPlatformBlock;
+  });
 }
 
 function buildAssetPurchaseRows(transactions: AnnualTransaction[], year: number) {
@@ -888,7 +949,53 @@ function isVeramarTransaction(transaction: AnnualTransaction) {
 }
 
 function getTransferDestination(transaction: AnnualTransaction) {
-  return transaction.linkedAccountName ?? transaction.description;
+  if (transaction.direction === 'inflow') {
+    return normalizePlatformLabel(transaction.accountName);
+  }
+
+  if (transaction.linkedAccountName) {
+    return normalizePlatformLabel(transaction.linkedAccountName);
+  }
+
+  return getKnownPlatformFromText(transaction.description) ?? transaction.description;
+}
+
+function getKnownPlatformFromText(value: string) {
+  const normalizedValue = normalizeText(value);
+  const platforms = [
+    'MyInvestor',
+    'Binance',
+    'Ledger',
+    'Trade Republic',
+    'Coinbase',
+    'Kraken',
+    'Revolut'
+  ];
+
+  return platforms.find((platform) => normalizedValue.includes(normalizeText(platform)));
+}
+
+function normalizePlatformLabel(value: string) {
+  return getKnownPlatformFromText(value) ?? value;
+}
+
+function isMainBankDestination(destination: string) {
+  const normalizedDestination = normalizeText(destination);
+
+  return (
+    normalizedDestination.includes('bbva') || normalizedDestination.includes('banco')
+  );
+}
+
+function getContainerLabel(container: DashboardSummary['containers'][number]) {
+  if (
+    container.institution &&
+    !container.name.toLowerCase().includes(container.institution.toLowerCase())
+  ) {
+    return `${container.institution} / ${container.name}`;
+  }
+
+  return container.name;
 }
 
 function fallbackMovementType(direction: AnnualTransaction['direction']) {

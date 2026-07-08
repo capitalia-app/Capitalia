@@ -763,7 +763,10 @@ function HomePanel({
           />
           <MetricCard
             label="Gastos anuales"
-            value={formatMoney(annualSummary?.annualExpenses ?? 0, summary.currency)}
+            value={formatMoney(
+              Math.abs(annualSummary?.annualExpenses ?? 0),
+              summary.currency
+            )}
             tone="expense"
           />
           <MetricCard
@@ -985,12 +988,14 @@ function AnnualTable({
                       }}
                       type="button"
                     >
-                      {formatCompactMoney(value, currency)}
+                      {formatCompactMoney(getAnnualDisplayValue(row, value), currency)}
                     </button>
                   </td>
                 ))}
                 <td>
-                  <strong>{formatCompactMoney(row.total, currency)}</strong>
+                  <strong>
+                    {formatCompactMoney(getAnnualDisplayValue(row, row.total), currency)}
+                  </strong>
                 </td>
               </tr>
             ))}
@@ -1073,7 +1078,9 @@ function ExpensesPanel({
       <div className="section-heading">
         <p className="eyebrow">Gastos</p>
         <h2>Fijos y variables</h2>
-        <span>{formatMoney(annualSummary.annualExpenses, annualSummary.currency)}</span>
+        <span>
+          {formatMoney(Math.abs(annualSummary.annualExpenses), annualSummary.currency)}
+        </span>
       </div>
       <AnnualTable
         currency={annualSummary.currency}
@@ -1234,20 +1241,53 @@ function SavingsPanel({
         currency={annualSummary.currency}
         onCellClick={onCellClick}
         rows={annualSummary.savings.destinationRows}
-        title="Resumen por destino"
+        title="Cuentas destino"
       />
-      <AnnualTable
-        currency={annualSummary.currency}
-        onCellClick={onCellClick}
-        rows={annualSummary.savings.platformRows}
-        title="Bloques por plataforma"
-      />
-      <AnnualTable
-        currency={annualSummary.currency}
-        onCellClick={onCellClick}
-        rows={annualSummary.savings.assetPurchaseRows}
-        title="Compras de activos"
-      />
+      <div className="savings-platform-grid">
+        {annualSummary.savings.platformBlocks.map((platform) => (
+          <section className="savings-platform-card" key={platform.platform}>
+            <div className="savings-platform-card__header">
+              <h3>{platform.platform}</h3>
+              <div>
+                <span>Disponible</span>
+                <strong>
+                  {formatMoney(platform.currentCash, annualSummary.currency)}
+                </strong>
+              </div>
+              <div>
+                <span>Total inversion</span>
+                <strong>
+                  {formatMoney(platform.totalInvestment, annualSummary.currency)}
+                </strong>
+              </div>
+            </div>
+            {platform.assetRows.length > 0 ? (
+              <AnnualTable
+                currency={annualSummary.currency}
+                onCellClick={onCellClick}
+                rows={platform.assetRows}
+                title={`Activos ${platform.platform}`}
+              />
+            ) : (
+              <div className="empty-state-card">
+                <span>Sin compras internas detectadas</span>
+                <p>
+                  Cuando importes compras de fondos, ETF o cripto dentro de{' '}
+                  {platform.platform}, apareceran aqui.
+                </p>
+              </div>
+            )}
+          </section>
+        ))}
+      </div>
+      {annualSummary.savings.assetPurchaseRows.length > 0 ? (
+        <AnnualTable
+          currency={annualSummary.currency}
+          onCellClick={onCellClick}
+          rows={annualSummary.savings.assetPurchaseRows}
+          title="Compras de activos"
+        />
+      ) : null}
       <section className="annual-table-card">
         <div className="section-heading">
           <p className="eyebrow">Transferencias</p>
@@ -4918,6 +4958,10 @@ function formatCompactMoney(value: number, currency: string) {
     notation: Math.abs(value) >= 100000 ? 'compact' : 'standard',
     style: 'currency'
   }).format(value);
+}
+
+function getAnnualDisplayValue(row: AnnualTableRow, value: number) {
+  return row.tone === 'expense' ? Math.abs(value) : value;
 }
 
 function formatDate(date: string) {

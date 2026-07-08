@@ -5,6 +5,12 @@ import {
   type TransactionCategory
 } from '@/features/finance/lib/categories';
 import type { DashboardSummary } from '@/features/finance/lib/dashboard';
+import {
+  buildMetricFilter,
+  calculateMonthlyBalance,
+  matchesMetricFilter,
+  type FinancialMetric
+} from '@/features/finance/lib/financialMetrics';
 import type { MovementType } from '@/features/finance/lib/import/types';
 import { supabase } from '@/shared/lib/supabase';
 
@@ -14,6 +20,7 @@ export type AnnualCellTarget = {
   movementType: MovementType | 'all';
   month: number;
   year: number;
+  metric?: FinancialMetric;
   search?: string;
   categoryId?: string;
 };
@@ -147,21 +154,23 @@ export async function getAnnualControlSummary(input: {
     linkedTransactionsById,
     transactions
   });
-  const monthlyIncome = sumMonthly(
-    annualTransactions.filter((transaction) => transaction.movementType === 'income')
+  const monthlyIncome = sumMonthlyByMetric(
+    annualTransactions,
+    buildMetricFilter('income', accounts)
   );
-  const monthlyExpenses = sumMonthly(
-    annualTransactions.filter((transaction) => transaction.movementType === 'expense')
+  const monthlyExpenses = sumMonthlyByMetric(
+    annualTransactions,
+    buildMetricFilter('expense', accounts)
   );
-  const monthlyInvestment = sumMonthly(
-    annualTransactions.filter(
-      (transaction) =>
-        transaction.movementType === 'investment' ||
-        transaction.movementType === 'transfer'
-    )
+  const monthlySavings = sumMonthlyByMetric(
+    annualTransactions,
+    buildMetricFilter('savings', accounts)
   );
-  const monthlyBalance = monthlyIncome.map(
-    (income, month) => income - (monthlyExpenses[month] ?? 0)
+  const monthlyBalance = monthlyIncome.map((income, month) =>
+    calculateMonthlyBalance({
+      expenses: monthlyExpenses[month] ?? 0,
+      income
+    })
   );
   const incomeRows = buildIncomeRows(annualTransactions, input.year);
   const expenseRows = buildExpenseRows(annualTransactions, input.year);
@@ -195,10 +204,11 @@ export async function getAnnualControlSummary(input: {
       createStaticRow(
         'savings',
         'Ahorro e inversion',
-        monthlyInvestment,
+        monthlySavings,
         'investment',
         input.year,
-        'investment'
+        'all',
+        'savings'
       ),
       createStaticRow(
         'balance',
@@ -206,7 +216,8 @@ export async function getAnnualControlSummary(input: {
         monthlyBalance,
         'balance',
         input.year,
-        'all'
+        'all',
+        'balance'
       )
     ],
     currency: input.summary.currency,
@@ -671,12 +682,14 @@ function createStaticRow(
   values: number[],
   tone: AnnualTableRow['tone'],
   year: number,
-  movementType: AnnualCellTarget['movementType']
+  movementType: AnnualCellTarget['movementType'],
+  metric?: FinancialMetric
 ) {
   return {
     key,
     label,
     targets: values.map((_, month) => ({
+      metric,
       month,
       movementType,
       year
@@ -761,6 +774,21 @@ function sumMonthly(transactions: AnnualTransaction[]) {
 
   transactions.forEach((transaction) => {
     values[transaction.month] = (values[transaction.month] ?? 0) + transaction.amount;
+  });
+
+  return values;
+}
+
+function sumMonthlyByMetric(
+  transactions: AnnualTransaction[],
+  filter: ReturnType<typeof buildMetricFilter>
+) {
+  const values = createEmptyMonths();
+
+  transactions.forEach((transaction) => {
+    if (matchesMetricFilter(transaction, filter)) {
+      values[transaction.month] = (values[transaction.month] ?? 0) + transaction.amount;
+    }
   });
 
   return values;

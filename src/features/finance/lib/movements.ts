@@ -7,6 +7,10 @@ import {
   mapMovementTypeToTransactionType,
   type TransactionCategory
 } from '@/features/finance/lib/categories';
+import {
+  buildMetricFilter,
+  type FinancialMetric
+} from '@/features/finance/lib/financialMetrics';
 import type { MovementType } from '@/features/finance/lib/import/types';
 import { supabase } from '@/shared/lib/supabase';
 
@@ -15,6 +19,7 @@ export type MovementReviewFilter = MovementType | 'all' | 'pending';
 export type MovementFilters = {
   search: string;
   movementType: MovementReviewFilter;
+  metric?: FinancialMetric;
   accountId: string;
   categoryId: string;
   dateFrom: string;
@@ -103,7 +108,32 @@ export async function listMovements(input: {
     query = query.ilike('description', `%${input.filters.search.trim()}%`);
   }
 
-  if (input.filters.movementType === 'pending') {
+  if (input.filters.metric) {
+    const metricFilter = buildMetricFilter(input.filters.metric, input.accounts);
+
+    if (metricFilter.movementTypes.length > 0) {
+      query = query.in('movement_type', metricFilter.movementTypes);
+    }
+
+    if (metricFilter.accountIds) {
+      if (metricFilter.accountIds.length === 0) {
+        return {
+          movements: [],
+          total: 0
+        } satisfies MovementListResult;
+      }
+
+      query = query.in('account_id', metricFilter.accountIds);
+    }
+
+    if (metricFilter.amountSign === 'positive') {
+      query = query.gt('amount', 0);
+    }
+
+    if (metricFilter.amountSign === 'negative') {
+      query = query.lt('amount', 0);
+    }
+  } else if (input.filters.movementType === 'pending') {
     query = query.eq('is_reviewed', false);
   } else if (input.filters.movementType !== 'all') {
     query = query.eq('movement_type', input.filters.movementType);

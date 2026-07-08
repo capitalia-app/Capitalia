@@ -7,7 +7,8 @@ import {
 import type { DashboardSummary } from '@/features/finance/lib/dashboard';
 import {
   buildMetricFilter,
-  calculateMonthlyBalance,
+  calculateMonthlyFinancialMetrics,
+  getSignedAmount,
   matchesMetricFilter,
   type FinancialMetric
 } from '@/features/finance/lib/financialMetrics';
@@ -154,41 +155,28 @@ export async function getAnnualControlSummary(input: {
     linkedTransactionsById,
     transactions
   });
-  const monthlyIncome = sumMonthlyByMetric(
+  const monthlyMetrics = calculateMonthlyFinancialMetrics(
     annualTransactions,
-    buildMetricFilter('income', accounts)
-  );
-  const monthlyExpenses = sumMonthlyByMetric(
-    annualTransactions,
-    buildMetricFilter('expense', accounts)
-  );
-  const monthlySavings = sumMonthlyByMetric(
-    annualTransactions,
-    buildMetricFilter('savings', accounts)
-  );
-  const monthlyBalance = monthlyIncome.map((income, month) =>
-    calculateMonthlyBalance({
-      expenses: monthlyExpenses[month] ?? 0,
-      income
-    })
+    accounts,
+    (transaction) => transaction.month
   );
   const incomeRows = buildIncomeRows(annualTransactions, input.year);
   const expenseRows = buildExpenseRows(annualTransactions, input.year);
   const veramar = buildVeramarSummary(annualTransactions, input.year);
-  const savings = buildSavingsSummary(annualTransactions, input.year);
+  const savings = buildSavingsSummary(annualTransactions, input.year, accounts);
   const yearSet = new Set([...availableYears, input.year]);
 
   return {
     accounts: input.summary.accounts,
-    annualBalance: sum(monthlyBalance),
-    annualExpenses: sum(monthlyExpenses),
-    annualIncome: sum(monthlyIncome),
+    annualBalance: sum(monthlyMetrics.balance),
+    annualExpenses: sum(monthlyMetrics.expenses),
+    annualIncome: sum(monthlyMetrics.income),
     availableYears: [...yearSet].sort((first, second) => second - first),
     balanceRows: [
       createStaticRow(
         'income',
         'Ingresos',
-        monthlyIncome,
+        monthlyMetrics.income,
         'income',
         input.year,
         'income'
@@ -196,7 +184,7 @@ export async function getAnnualControlSummary(input: {
       createStaticRow(
         'expenses',
         'Gastos',
-        monthlyExpenses,
+        monthlyMetrics.expenses,
         'expense',
         input.year,
         'expense'
@@ -204,7 +192,7 @@ export async function getAnnualControlSummary(input: {
       createStaticRow(
         'savings',
         'Ahorro e inversion',
-        monthlySavings,
+        monthlyMetrics.savings,
         'investment',
         input.year,
         'all',
@@ -213,7 +201,7 @@ export async function getAnnualControlSummary(input: {
       createStaticRow(
         'balance',
         'Balance mensual',
-        monthlyBalance,
+        monthlyMetrics.balance,
         'balance',
         input.year,
         'all',
@@ -500,12 +488,14 @@ function buildVeramarSummary(transactions: AnnualTransaction[], year: number) {
   } satisfies VeramarSummary;
 }
 
-function buildSavingsSummary(transactions: AnnualTransaction[], year: number) {
-  const investmentTransactions = transactions.filter(
-    (transaction) => transaction.movementType === 'investment'
-  );
-  const transferTransactions = transactions.filter(
-    (transaction) => transaction.movementType === 'transfer'
+function buildSavingsSummary(
+  transactions: AnnualTransaction[],
+  year: number,
+  accounts: FinancialAccount[]
+) {
+  const savingsFilter = buildMetricFilter('savings', accounts);
+  const savingsTransactions = transactions.filter((transaction) =>
+    matchesMetricFilter(transaction, savingsFilter)
   );
   const destinations = ['BBVA', 'MyInvestor', 'Binance', 'Ledger'];
 
@@ -514,10 +504,11 @@ function buildSavingsSummary(transactions: AnnualTransaction[], year: number) {
       buildRuleRow(
         `destination-${destination}`,
         destination,
-        [...investmentTransactions, ...transferTransactions],
+        savingsTransactions,
         year,
         [destination],
-        'investment'
+        'investment',
+        'savings'
       )
     ),
     platformRows: destinations
@@ -526,13 +517,14 @@ function buildSavingsSummary(transactions: AnnualTransaction[], year: number) {
         buildRuleRow(
           `platform-${destination}`,
           destination,
-          investmentTransactions,
+          savingsTransactions,
           year,
           [destination],
-          'investment'
+          'investment',
+          'savings'
         )
       ),
-    transferRows: transferTransactions.map((transaction) => ({
+    transferRows: savingsTransactions.map((transaction) => ({
       amount: transaction.amount,
       currency: transaction.currency,
       date: transaction.occurredAt,
@@ -550,7 +542,8 @@ function buildRuleRow(
   transactions: AnnualTransaction[],
   year: number,
   keywords: string[],
-  tone: AnnualTableRow['tone']
+  tone: AnnualTableRow['tone'],
+  metric?: FinancialMetric
 ) {
   const matchingTransactions =
     keywords.length > 0
@@ -561,7 +554,15 @@ function buildRuleRow(
         )
       : transactions;
 
-  return createTransactionRow(key, label, matchingTransactions, tone, year, keywords[0]);
+  return createTransactionRow(
+    key,
+    label,
+    matchingTransactions,
+    tone,
+    year,
+    keywords[0],
+    metric
+  );
 }
 
 function buildExpenseRuleRow(
@@ -646,7 +647,8 @@ function createTransactionRow(
   transactions: AnnualTransaction[],
   tone: AnnualTableRow['tone'],
   year: number,
-  searchHint?: string
+  searchHint?: string,
+  metric?: FinancialMetric
 ) {
   const values = sumMonthly(transactions);
   const firstCategoryId = transactions.find(
@@ -658,9 +660,11 @@ function createTransactionRow(
     label,
     targets: values.map((_, month) => ({
       categoryId: searchHint ? undefined : (firstCategoryId ?? undefined),
+      metric,
       month,
-      movementType:
-        tone === 'income'
+      movementType: metric
+        ? 'all'
+        : tone === 'income'
           ? 'income'
           : tone === 'expense'
             ? 'expense'
@@ -773,22 +777,8 @@ function sumMonthly(transactions: AnnualTransaction[]) {
   const values = createEmptyMonths();
 
   transactions.forEach((transaction) => {
-    values[transaction.month] = (values[transaction.month] ?? 0) + transaction.amount;
-  });
-
-  return values;
-}
-
-function sumMonthlyByMetric(
-  transactions: AnnualTransaction[],
-  filter: ReturnType<typeof buildMetricFilter>
-) {
-  const values = createEmptyMonths();
-
-  transactions.forEach((transaction) => {
-    if (matchesMetricFilter(transaction, filter)) {
-      values[transaction.month] = (values[transaction.month] ?? 0) + transaction.amount;
-    }
+    values[transaction.month] =
+      (values[transaction.month] ?? 0) + getSignedAmount(transaction);
   });
 
   return values;

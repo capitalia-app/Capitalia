@@ -17,7 +17,7 @@ import {
 
 type UniversalColumns = {
   date: number;
-  description: number;
+  description: number[];
   amount: number;
   balance: number;
   currency: number;
@@ -65,6 +65,10 @@ const columnAliases = {
 export class ImportEngine {
   async parseFile(file: File, fallbackCurrency: string) {
     const sheets = await readImportSheets(file);
+    logImportDebug(
+      'hojas leidas',
+      sheets.map((sheet) => sheet.name)
+    );
     const candidates = await Promise.all(
       sheets.flatMap((sheet) =>
         sheet.rows.map((_, rowIndex) =>
@@ -81,6 +85,8 @@ export class ImportEngine {
         'Formato no reconocido. No se encontro una tabla con columnas de fecha, descripcion e importe.'
       );
     }
+
+    logDetectedTable(bestCandidate);
 
     return {
       ignoredRows: bestCandidate.ignoredRows,
@@ -111,7 +117,20 @@ async function parseCandidateTable(
     const row = dataRows[rowOffset];
 
     if (!row || !row.some((cell) => cell.trim())) {
+      if (transactions.length > 0) {
+        break;
+      }
+
       continue;
+    }
+
+    const dateValue = getCell(row, columns.date);
+    const amountValue = getCell(row, columns.amount);
+    const hasDate = parseDateCell(dateValue) !== null;
+    const hasAmount = Number.isFinite(parseAmountCell(amountValue));
+
+    if (!hasDate && !hasAmount && transactions.length > 0) {
+      break;
     }
 
     const parsedRow = await parseMovementRow({
@@ -149,15 +168,37 @@ function detectColumns(headers: string[]) {
     amount: findAliasColumn(normalizedHeaders, columnAliases.amount),
     balance: findAliasColumn(normalizedHeaders, columnAliases.balance),
     currency: findAliasColumn(normalizedHeaders, columnAliases.currency),
-    date: findAliasColumn(normalizedHeaders, columnAliases.date),
-    description: findAliasColumn(normalizedHeaders, columnAliases.description)
+    date: findDateColumn(normalizedHeaders),
+    description: findAliasColumns(normalizedHeaders, columnAliases.description)
   } satisfies UniversalColumns;
 
-  if (columns.date === -1 || columns.description === -1 || columns.amount === -1) {
+  if (columns.date === -1 || columns.description.length === 0 || columns.amount === -1) {
     return null;
   }
 
   return columns;
+}
+
+function findDateColumn(headers: string[]) {
+  const preferredDate = findAliasColumn(headers, ['fecha', 'fecha operacion']);
+
+  if (preferredDate !== -1) {
+    return preferredDate;
+  }
+
+  return findAliasColumn(headers, columnAliases.date);
+}
+
+function findAliasColumns(headers: string[], aliases: string[]) {
+  return headers.reduce<number[]>((matches, header, index) => {
+    const isMatch = aliases.some((alias) => header === normalizeHeader(alias));
+
+    if (isMatch) {
+      matches.push(index);
+    }
+
+    return matches;
+  }, []);
 }
 
 function findAliasColumn(headers: string[], aliases: string[]) {
@@ -176,7 +217,11 @@ async function parseMovementRow(params: {
 }) {
   const rawRow = createRawPayload(params.headers, params.row);
   const dateValue = getCell(params.row, params.columns.date);
-  const description = getCell(params.row, params.columns.description);
+  const description = params.columns.description
+    .map((columnIndex) => getCell(params.row, columnIndex))
+    .filter(Boolean)
+    .join(' ')
+    .trim();
   const amountValue = getCell(params.row, params.columns.amount);
   const date = parseDateCell(dateValue);
   const amount = parseAmountCell(amountValue);
@@ -253,6 +298,55 @@ async function parseMovementRow(params: {
       type: transactionType
     } satisfies ParsedCsvTransaction
   };
+}
+
+export async function parseImportSheetsForTesting(
+  sheets: ImportSheet[],
+  fallbackCurrency = 'EUR'
+) {
+  const candidates = await Promise.all(
+    sheets.flatMap((sheet) =>
+      sheet.rows.map((_, rowIndex) =>
+        parseCandidateTable(sheet, rowIndex, fallbackCurrency)
+      )
+    )
+  );
+
+  return candidates
+    .filter((candidate): candidate is CandidateTable => candidate !== null)
+    .sort((first, second) => second.transactions.length - first.transactions.length)[0];
+}
+
+function logDetectedTable(candidate: CandidateTable) {
+  logImportDebug('fila de cabecera detectada', {
+    rowNumber: candidate.headerIndex + 1,
+    sheetName: candidate.sheet.name
+  });
+  logImportDebug('columnas detectadas', {
+    amount: candidate.headers[candidate.columns.amount],
+    currency:
+      candidate.columns.currency === -1
+        ? null
+        : candidate.headers[candidate.columns.currency],
+    date: candidate.headers[candidate.columns.date],
+    description: candidate.columns.description.map((index) => candidate.headers[index])
+  });
+  logImportDebug(
+    'primeras 3 filas normalizadas',
+    candidate.transactions.slice(0, 3).map((transaction) => ({
+      amount: transaction.amount,
+      currency: transaction.currency,
+      date: transaction.date,
+      description: transaction.description,
+      type: transaction.type
+    }))
+  );
+}
+
+function logImportDebug(label: string, payload: unknown) {
+  if (import.meta.env.DEV) {
+    console.debug(`[Capitalia Import] ${label}`, payload);
+  }
 }
 
 function getIgnoredReason(input: {

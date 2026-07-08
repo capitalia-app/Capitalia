@@ -9,6 +9,7 @@ import {
 } from '@/features/finance/lib/categories';
 import {
   buildMetricFilter,
+  matchesMetricFilter,
   type FinancialMetric
 } from '@/features/finance/lib/financialMetrics';
 import type { MovementType } from '@/features/finance/lib/import/types';
@@ -114,21 +115,6 @@ export async function listMovements(input: {
     if (metricFilter.movementTypes.length > 0) {
       query = query.in('movement_type', metricFilter.movementTypes);
     }
-
-    if (metricFilter.accountIds) {
-      if (metricFilter.accountIds.length === 0) {
-        return {
-          movements: [],
-          total: 0
-        } satisfies MovementListResult;
-      }
-
-      query = query.in('account_id', metricFilter.accountIds);
-    }
-
-    if (metricFilter.direction) {
-      query = query.eq('direction', metricFilter.direction);
-    }
   } else if (input.filters.movementType === 'pending') {
     query = query.eq('is_reviewed', false);
   } else if (input.filters.movementType !== 'all') {
@@ -151,15 +137,42 @@ export async function listMovements(input: {
     query = query.lte('occurred_at', `${input.filters.dateTo}T23:59:59.999Z`);
   }
 
-  const { count, data, error } = await query
-    .range(input.offset, input.offset + input.limit - 1)
-    .returns<TransactionRecord[]>();
+  const paginatedQuery = input.filters.metric
+    ? query
+    : query.range(input.offset, input.offset + input.limit - 1);
+  const { count, data, error } = await paginatedQuery.returns<TransactionRecord[]>();
 
   if (error) {
     throw error;
   }
 
-  const page = data;
+  const metricFilter = input.filters.metric
+    ? buildMetricFilter(input.filters.metric, input.accounts)
+    : null;
+  const filteredData = metricFilter
+    ? data.filter((transaction) => {
+        const account = input.accounts.find(
+          (candidate) => candidate.id === transaction.account_id
+        );
+
+        return matchesMetricFilter(
+          {
+            accountId: transaction.account_id,
+            accountName: account ? getAccountDisplayName(account) : 'Cuenta',
+            amount: Number(transaction.amount),
+            description: transaction.description,
+            direction: transaction.direction,
+            linkedTransactionId: transaction.linked_transaction_id,
+            movementType: transaction.movement_type,
+            transactionType: transaction.transaction_type
+          },
+          metricFilter
+        );
+      })
+    : data;
+  const page = metricFilter
+    ? filteredData.slice(input.offset, input.offset + input.limit)
+    : filteredData;
   const linkedTransactionsById = await getLinkedTransactionsById(
     page
       .map((transaction) => transaction.linked_transaction_id)
@@ -202,7 +215,7 @@ export async function listMovements(input: {
         transferGroupId: transaction.transfer_group_id
       };
     }),
-    total: count ?? 0
+    total: metricFilter ? filteredData.length : (count ?? 0)
   } satisfies MovementListResult;
 }
 

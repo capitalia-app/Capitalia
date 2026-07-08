@@ -5,6 +5,7 @@ import {
   buildMetricFilter,
   calculateMonthlyBalance,
   calculateMonthlyFinancialMetrics,
+  getMetricAmount,
   matchesMetricFilter,
   sumMetricTransactions,
   type MetricTransaction
@@ -21,7 +22,7 @@ describe('financial metrics', () => {
     const aprilTransactions = [
       createTransaction('bbva', 'BBVA / Cuenta principal', 3000, 'outflow', 'transfer'),
       createTransaction('myinvestor', 'MyInvestor', 3000, 'inflow', 'transfer'),
-      createTransaction('myinvestor', 'MyInvestor', 200, 'inflow', 'investment'),
+      createTransaction('myinvestor', 'Fidelity S&P 500', 200, 'outflow', 'investment'),
       createTransaction('bbva', 'BBVA / Cuenta principal', 80, 'outflow', 'expense'),
       createTransaction('bbva', 'BBVA / Cuenta principal', 2500, 'inflow', 'income')
     ];
@@ -29,9 +30,12 @@ describe('financial metrics', () => {
     const dashboardTotal = sumMetricTransactions(aprilTransactions, savingsFilter);
     const visibleMovementTotal = aprilTransactions
       .filter((transaction) => matchesMetricFilter(transaction, savingsFilter))
-      .reduce((total, transaction) => total + transaction.amount, 0);
+      .reduce(
+        (total, transaction) => total + getMetricAmount(transaction, savingsFilter),
+        0
+      );
 
-    expect(dashboardTotal).toBe(3200);
+    expect(dashboardTotal).toBe(3000);
     expect(visibleMovementTotal).toBe(dashboardTotal);
   });
 
@@ -62,6 +66,23 @@ describe('financial metrics', () => {
     expect(calculateMonthlyBalance({ expenses, income, savings })).toBe(-580);
   });
 
+  it('counts a source-account transfer to an investment platform when the destination leg is missing', () => {
+    const transactions = [
+      createTransaction(
+        'bbva',
+        'BBVA / Cuenta principal',
+        300,
+        'outflow',
+        'transfer',
+        'Transferencia emitida MyInvestor'
+      )
+    ];
+
+    expect(
+      sumMetricTransactions(transactions, buildMetricFilter('savings', accounts))
+    ).toBe(300);
+  });
+
   it('keeps dashboard monthly totals aligned with gastos and inversion sections', () => {
     const transactions = [
       createMonthlyTransaction(0, 'bbva', 'BBVA', 2000, 'inflow', 'income'),
@@ -70,12 +91,19 @@ describe('financial metrics', () => {
       createMonthlyTransaction(1, 'bbva', 'BBVA', 600, 'outflow', 'expense'),
       createMonthlyTransaction(1, 'myinvestor', 'MyInvestor', 300, 'inflow', 'transfer'),
       createMonthlyTransaction(2, 'bbva', 'BBVA', 2200, 'inflow', 'income'),
-      createMonthlyTransaction(2, 'ledger', 'Ledger', 125, 'inflow', 'investment'),
+      createMonthlyTransaction(2, 'bbva', 'BBVA', 125, 'outflow', 'transfer', 'Ledger'),
       createMonthlyTransaction(3, 'bbva', 'BBVA', 2500, 'inflow', 'income'),
       createMonthlyTransaction(3, 'bbva', 'BBVA', 80, 'outflow', 'expense'),
       createMonthlyTransaction(3, 'bbva', 'BBVA', 3000, 'outflow', 'transfer'),
       createMonthlyTransaction(3, 'myinvestor', 'MyInvestor', 3000, 'inflow', 'transfer'),
-      createMonthlyTransaction(3, 'myinvestor', 'MyInvestor', 200, 'inflow', 'investment')
+      createMonthlyTransaction(
+        3,
+        'myinvestor',
+        'Fidelity S&P 500',
+        200,
+        'outflow',
+        'investment'
+      )
     ];
     const metrics = calculateMonthlyFinancialMetrics(
       transactions,
@@ -91,8 +119,8 @@ describe('financial metrics', () => {
 
     expect(metrics.income.slice(0, 4)).toEqual([2000, 2100, 2200, 2500]);
     expect(metrics.expenses.slice(0, 4)).toEqual([-500, -600, 0, -80]);
-    expect(metrics.savings.slice(0, 4)).toEqual([0, 300, 125, 3200]);
-    expect(metrics.balance.slice(0, 4)).toEqual([1500, 1200, 2075, -780]);
+    expect(metrics.savings.slice(0, 4)).toEqual([0, 300, 125, 3000]);
+    expect(metrics.balance.slice(0, 4)).toEqual([1500, 1200, 2075, -580]);
     expect(
       sumMetricTransactions(gastosSection, buildMetricFilter('expense', accounts))
     ).toBe(metrics.expenses.slice(0, 4).reduce((total, value) => total + value, 0));
@@ -107,13 +135,14 @@ function createTransaction(
   accountName: string,
   amount: number,
   direction: MetricTransaction['direction'],
-  movementType: MetricTransaction['movementType']
+  movementType: MetricTransaction['movementType'],
+  description = accountName
 ) {
   return {
     accountId,
     accountName,
     amount,
-    description: accountName,
+    description,
     direction,
     movementType
   } satisfies MetricTransaction;
@@ -142,10 +171,18 @@ function createMonthlyTransaction(
   accountName: string,
   amount: number,
   direction: MetricTransaction['direction'],
-  movementType: MetricTransaction['movementType']
+  movementType: MetricTransaction['movementType'],
+  description = accountName
 ) {
   return {
-    ...createTransaction(accountId, accountName, amount, direction, movementType),
+    ...createTransaction(
+      accountId,
+      accountName,
+      amount,
+      direction,
+      movementType,
+      description
+    ),
     month
   };
 }

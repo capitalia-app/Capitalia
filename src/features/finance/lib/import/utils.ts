@@ -1,7 +1,4 @@
-import type {
-  ImportSheet,
-  ImportTransactionType
-} from '@/features/finance/lib/import/types';
+import type { ImportSheet, MovementType } from '@/features/finance/lib/import/types';
 
 export async function readImportSheets(file: File) {
   if (isExcelFile(file)) {
@@ -256,7 +253,7 @@ function normalizeNumericAmount(value: string, decimalSeparator: ',' | '.' | nul
 export function estimateTransactionType(
   description: string,
   amount: number
-): ImportTransactionType {
+): MovementType {
   const normalizedDescription = normalizeHeader(description);
 
   if (

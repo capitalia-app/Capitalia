@@ -1,4 +1,5 @@
 import type {
+  ImportTransactionType,
   MovementType,
   ParsedCsvTransaction
 } from '@/features/finance/lib/import/types';
@@ -311,6 +312,10 @@ export async function classifyImportedTransactions(
       priorityCategory ??
       (systemRule ? categoriesById.get(systemRule.categoryId) : null);
     const movementType = category?.movementType ?? transaction.type;
+    const transactionType = getDetailedTransactionType(
+      movementType,
+      normalizedDescription
+    );
 
     return {
       ...transaction,
@@ -318,7 +323,7 @@ export async function classifyImportedTransactions(
       categoryName: category?.name ?? null,
       isReviewed: Boolean(category),
       movementType,
-      transactionType: movementType,
+      transactionType,
       type: movementType
     } satisfies ClassifiedImportTransaction;
   });
@@ -421,10 +426,28 @@ export function getMovementTypeLabel(type: MovementType) {
 
 export function mapMovementTypeToTransactionType(type: MovementType) {
   if (type === 'investment') {
-    return 'investment_buy';
+    return 'asset_purchase';
   }
 
   return type;
+}
+
+function getDetailedTransactionType(
+  movementType: MovementType,
+  normalizedDescription: string
+): ImportTransactionType {
+  if (movementType === 'investment') {
+    return 'asset_purchase';
+  }
+
+  if (
+    movementType === 'transfer' &&
+    matchesAny(normalizedDescription, investmentPlatformKeywords)
+  ) {
+    return 'investment_transfer';
+  }
+
+  return movementType;
 }
 
 function mapCategoryRecord(record: CategoryRecord) {
@@ -496,8 +519,22 @@ const transferKeywords = [
   'ingreso efectivo',
   'retirada efectivo',
   'myinvestor',
+  'binance',
+  'ledger',
+  'trade republic',
   'revolut',
   'entre cuentas'
+];
+
+const investmentPlatformKeywords = [
+  'myinvestor',
+  'binance',
+  'ledger',
+  'trade republic',
+  'trading 212',
+  'coinbase',
+  'kraken',
+  'broker'
 ];
 
 function matchesAny(value: string, keywords: string[]) {

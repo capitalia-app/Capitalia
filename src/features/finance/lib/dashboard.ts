@@ -1,5 +1,7 @@
 import {
   getCurrentWorkspace,
+  type FinancialAccount,
+  type FinancialAccountType,
   type WorkspaceSummary
 } from '@/features/finance/lib/accounts';
 import type { MovementType } from '@/features/finance/lib/import/types';
@@ -9,6 +11,12 @@ import {
   type FinancialContainer,
   type PatrimonialSnapshot
 } from '@/features/finance/lib/snapshots';
+import {
+  calculateMonthlyFinancialMetrics,
+  sumMetricTransactions,
+  buildMetricFilter,
+  type MetricTransaction
+} from '@/features/finance/lib/financialMetrics';
 import { supabase } from '@/shared/lib/supabase';
 
 export type DashboardAccount = {
@@ -66,6 +74,7 @@ type AccountRecord = {
   id: string;
   name: string;
   currency: string;
+  type: FinancialAccountType;
 };
 
 type BalanceRecord = {
@@ -99,9 +108,13 @@ type BalanceTransactionRecord = {
 };
 
 type MonthlyTransactionRecord = {
+  account_id: string;
   amount: number | string;
+  description: string;
   direction: 'inflow' | 'outflow';
+  linked_transaction_id: string | null;
   movement_type: MovementType | null;
+  transaction_type: string | null;
 };
 
 type CategoryRecord = {
@@ -122,7 +135,7 @@ export async function getDashboardSummary() {
   const workspace = await getCurrentWorkspace();
   const { data: accounts, error: accountsError } = await supabase
     .from('financial_accounts')
-    .select('id, name, currency')
+    .select('id, name, currency, type')
     .eq('workspace_id', workspace.id)
     .order('created_at', { ascending: false })
     .returns<AccountRecord[]>();
@@ -160,15 +173,40 @@ export async function getDashboardSummary() {
       .filter((transactionId): transactionId is string => Boolean(transactionId))
   );
   const accountsById = new Map(accounts.map((account) => [account.id, account]));
-  const monthIncome = sumByMovement(monthTransactions, 'income');
-  const monthExpenses = sumByMovement(monthTransactions, 'expense');
-  const monthInvested = sumByMovement(monthTransactions, 'investment');
-  const monthTransfers = sumByMovement(monthTransactions, 'transfer');
-  const monthBalance = monthIncome - monthExpenses;
-  const incomeSinceStart = sumByMovement(startTransactions, 'income');
-  const expensesSinceStart = sumByMovement(startTransactions, 'expense');
-  const investedSinceStart = sumByMovement(startTransactions, 'investment');
-  const transfersSinceStart = sumByMovement(startTransactions, 'transfer');
+  const metricAccounts = accounts.map(mapAccountRecordToMetricAccount);
+  const monthMetricTransactions = monthTransactions.map((transaction) =>
+    mapMonthlyTransactionToMetricTransaction(transaction, accountsById)
+  );
+  const startMetricTransactions = startTransactions.map((transaction) =>
+    mapMonthlyTransactionToMetricTransaction(transaction, accountsById)
+  );
+  const monthMetrics = calculateMonthlyFinancialMetrics(
+    monthMetricTransactions,
+    metricAccounts,
+    () => now.getUTCMonth()
+  );
+  const monthIndex = now.getUTCMonth();
+  const monthIncome = monthMetrics.income[monthIndex] ?? 0;
+  const monthExpenses = monthMetrics.expenses[monthIndex] ?? 0;
+  const monthInvested = monthMetrics.savings[monthIndex] ?? 0;
+  const monthTransfers = sumMetricTransactions(
+    monthMetricTransactions,
+    buildMetricFilter('savings', metricAccounts)
+  );
+  const monthBalance = monthMetrics.balance[monthIndex] ?? 0;
+  const incomeSinceStart = sumMetricTransactions(
+    startMetricTransactions,
+    buildMetricFilter('income', metricAccounts)
+  );
+  const expensesSinceStart = sumMetricTransactions(
+    startMetricTransactions,
+    buildMetricFilter('expense', metricAccounts)
+  );
+  const investedSinceStart = sumMetricTransactions(
+    startMetricTransactions,
+    buildMetricFilter('savings', metricAccounts)
+  );
+  const transfersSinceStart = investedSinceStart;
   const accountBalances = accounts.map((account) => {
     const balance = balances.get(account.id);
 
@@ -280,7 +318,9 @@ async function getTransactionsFrom(workspaceId: string, fromDate: Date | string)
 
   const { data, error } = await supabase
     .from('transactions')
-    .select('amount, direction, movement_type')
+    .select(
+      'account_id, amount, direction, movement_type, description, transaction_type, linked_transaction_id'
+    )
     .eq('workspace_id', workspaceId)
     .eq('status', 'posted')
     .gte('occurred_at', fromIso)
@@ -415,19 +455,37 @@ function getBalanceWithTransactions(
   return Number(balance?.balance ?? 0) + delta;
 }
 
-function sumByMovement(
-  transactions: MonthlyTransactionRecord[],
-  movementType: MovementType
-) {
-  return transactions
-    .filter(
-      (transaction) =>
-        (transaction.movement_type ?? fallbackMovementType(transaction.direction)) ===
-        movementType
-    )
-    .reduce((total, transaction) => total + Number(transaction.amount), 0);
-}
-
 function fallbackMovementType(direction: MonthlyTransactionRecord['direction']) {
   return direction === 'inflow' ? 'income' : 'expense';
+}
+
+function mapAccountRecordToMetricAccount(account: AccountRecord) {
+  return {
+    balance: null,
+    balanceCapturedAt: null,
+    currency: account.currency,
+    id: account.id,
+    institutionName: '',
+    name: account.name,
+    type: account.type
+  } satisfies FinancialAccount;
+}
+
+function mapMonthlyTransactionToMetricTransaction(
+  transaction: MonthlyTransactionRecord,
+  accountsById: Map<string, AccountRecord>
+) {
+  const account = accountsById.get(transaction.account_id);
+
+  return {
+    accountId: transaction.account_id,
+    accountName: account?.name ?? 'Cuenta',
+    amount: Number(transaction.amount),
+    description: transaction.description,
+    direction: transaction.direction,
+    linkedTransactionId: transaction.linked_transaction_id,
+    movementType:
+      transaction.movement_type ?? fallbackMovementType(transaction.direction),
+    transactionType: transaction.transaction_type
+  } satisfies MetricTransaction;
 }

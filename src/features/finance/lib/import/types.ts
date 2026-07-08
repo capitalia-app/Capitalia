@@ -1,6 +1,7 @@
 export type MovementType = 'income' | 'expense' | 'investment' | 'transfer';
 
-export type ImportTransactionType = MovementType;
+export type ImportTransactionType =
+  MovementType | 'asset_purchase' | 'investment_transfer';
 
 export type NormalizedImportTransaction = {
   id: string;
@@ -8,7 +9,7 @@ export type NormalizedImportTransaction = {
   description: string;
   amount: number;
   currency: string;
-  type: ImportTransactionType;
+  type: MovementType;
   sourceFormat: string;
   rawRow: Record<string, string>;
   movementType?: MovementType;

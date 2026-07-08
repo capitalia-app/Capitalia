@@ -8,6 +8,7 @@ import type { DashboardSummary } from '@/features/finance/lib/dashboard';
 import {
   buildMetricFilter,
   calculateMonthlyFinancialMetrics,
+  getMetricAmount,
   getSignedAmount,
   matchesMetricFilter,
   type FinancialMetric
@@ -51,6 +52,7 @@ export type SavingsSummary = {
   transferRows: AnnualTransferRow[];
   destinationRows: AnnualTableRow[];
   platformRows: AnnualTableRow[];
+  assetPurchaseRows: AnnualTableRow[];
 };
 
 export type AnnualTransferRow = {
@@ -90,6 +92,7 @@ type TransactionRecord = {
   category_id: string | null;
   movement_type: MovementType | null;
   linked_transaction_id: string | null;
+  transaction_type: string | null;
 };
 
 type LinkedTransactionRecord = {
@@ -108,10 +111,12 @@ type AnnualTransaction = {
   description: string;
   direction: 'inflow' | 'outflow';
   linkedAccountName: string | null;
+  linkedTransactionId: string | null;
   month: AnnualMonthIndex;
   movementType: MovementType;
   occurredAt: string;
   searchText: string;
+  transactionType: string | null;
 };
 
 export const monthLabels = [
@@ -257,12 +262,14 @@ function normalizeTransactions(input: {
       direction: transaction.direction,
       id: transaction.id,
       linkedAccountName: linkedAccount ? getAccountDisplayName(linkedAccount) : null,
+      linkedTransactionId: transaction.linked_transaction_id,
       month,
       movementType,
       occurredAt: transaction.occurred_at,
       searchText: normalizeText(
         `${transaction.description} ${categoryName ?? ''} ${accountName}`
-      )
+      ),
+      transactionType: transaction.transaction_type
     } satisfies AnnualTransaction;
   });
 }
@@ -497,9 +504,15 @@ function buildSavingsSummary(
   const savingsTransactions = transactions.filter((transaction) =>
     matchesMetricFilter(transaction, savingsFilter)
   );
+  const assetPurchaseTransactions = transactions.filter(
+    (transaction) =>
+      transaction.movementType === 'investment' ||
+      transaction.transactionType === 'asset_purchase'
+  );
   const destinations = ['BBVA', 'MyInvestor', 'Binance', 'Ledger'];
 
   return {
+    assetPurchaseRows: buildAssetPurchaseRows(assetPurchaseTransactions, year),
     destinationRows: destinations.map((destination) =>
       buildRuleRow(
         `destination-${destination}`,
@@ -525,7 +538,7 @@ function buildSavingsSummary(
         )
       ),
     transferRows: savingsTransactions.map((transaction) => ({
-      amount: transaction.amount,
+      amount: Math.abs(transaction.amount),
       currency: transaction.currency,
       date: transaction.occurredAt,
       destination: getTransferDestination(transaction),
@@ -534,6 +547,28 @@ function buildSavingsSummary(
       origin: transaction.accountName
     }))
   } satisfies SavingsSummary;
+}
+
+function buildAssetPurchaseRows(transactions: AnnualTransaction[], year: number) {
+  const groups = new Map<string, AnnualTransaction[]>();
+
+  transactions.forEach((transaction) => {
+    const key = transaction.categoryName ?? transaction.description;
+    groups.set(key, [...(groups.get(key) ?? []), transaction]);
+  });
+
+  return [...groups.entries()]
+    .map(([label, groupTransactions]) =>
+      createAbsoluteTransactionRow(
+        `asset-purchase-${label}`,
+        label,
+        groupTransactions,
+        'investment',
+        year,
+        label
+      )
+    )
+    .sort((left, right) => Math.abs(right.total) - Math.abs(left.total));
 }
 
 function buildRuleRow(
@@ -650,7 +685,10 @@ function createTransactionRow(
   searchHint?: string,
   metric?: FinancialMetric
 ) {
-  const values = sumMonthly(transactions);
+  const metricFilter = metric ? buildMetricFilter(metric, []) : null;
+  const values = metricFilter
+    ? sumMonthlyWithMetric(transactions, metricFilter)
+    : sumMonthly(transactions);
   const firstCategoryId = transactions.find(
     (transaction) => transaction.categoryId
   )?.categoryId;
@@ -712,7 +750,7 @@ async function getYearTransactions(workspaceId: string, year: number) {
   const { data, error } = await supabase
     .from('transactions')
     .select(
-      'id, account_id, amount, currency, direction, occurred_at, description, category_id, movement_type, linked_transaction_id'
+      'id, account_id, amount, currency, direction, occurred_at, description, category_id, movement_type, linked_transaction_id, transaction_type'
     )
     .eq('workspace_id', workspaceId)
     .eq('status', 'posted')
@@ -779,6 +817,56 @@ function sumMonthly(transactions: AnnualTransaction[]) {
   transactions.forEach((transaction) => {
     values[transaction.month] =
       (values[transaction.month] ?? 0) + getSignedAmount(transaction);
+  });
+
+  return values;
+}
+
+function createAbsoluteTransactionRow(
+  key: string,
+  label: string,
+  transactions: AnnualTransaction[],
+  tone: AnnualTableRow['tone'],
+  year: number,
+  searchHint?: string
+) {
+  const values = sumMonthlyAbsolute(transactions);
+
+  return {
+    key,
+    label,
+    targets: values.map((_, month) => ({
+      month,
+      movementType: 'investment',
+      search: searchHint,
+      year
+    })),
+    tone,
+    total: sum(values),
+    values
+  } satisfies AnnualTableRow;
+}
+
+function sumMonthlyWithMetric(
+  transactions: AnnualTransaction[],
+  metricFilter: ReturnType<typeof buildMetricFilter>
+) {
+  const values = createEmptyMonths();
+
+  transactions.forEach((transaction) => {
+    values[transaction.month] =
+      (values[transaction.month] ?? 0) + getMetricAmount(transaction, metricFilter);
+  });
+
+  return values;
+}
+
+function sumMonthlyAbsolute(transactions: AnnualTransaction[]) {
+  const values = createEmptyMonths();
+
+  transactions.forEach((transaction) => {
+    values[transaction.month] =
+      (values[transaction.month] ?? 0) + Math.abs(transaction.amount);
   });
 
   return values;

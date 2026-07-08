@@ -1242,6 +1242,12 @@ function SavingsPanel({
         rows={annualSummary.savings.platformRows}
         title="Bloques por plataforma"
       />
+      <AnnualTable
+        currency={annualSummary.currency}
+        onCellClick={onCellClick}
+        rows={annualSummary.savings.assetPurchaseRows}
+        title="Compras de activos"
+      />
       <section className="annual-table-card">
         <div className="section-heading">
           <p className="eyebrow">Transferencias</p>
@@ -3510,9 +3516,11 @@ function AssetDetailsModal({
           value={
             !hasAssetCurrentValue(asset)
               ? 'Valor pendiente'
-              : performance.profit === null
-                ? 'Coste no informado'
-                : formatMoney(performance.profit, asset.currency)
+              : asset.currentValueIsEstimated
+                ? 'Valor estimado por coste'
+                : performance.profit === null
+                  ? 'Coste no informado'
+                  : formatMoney(performance.profit, asset.currency)
           }
         />
         <MetricCard
@@ -3520,9 +3528,11 @@ function AssetDetailsModal({
           value={
             !hasAssetCurrentValue(asset)
               ? 'Valor pendiente'
-              : performance.returnPercentage === null
-                ? 'Coste no informado'
-                : formatPercentage(performance.returnPercentage)
+              : asset.currentValueIsEstimated
+                ? 'Valor estimado por coste'
+                : performance.returnPercentage === null
+                  ? 'Coste no informado'
+                  : formatPercentage(performance.returnPercentage)
           }
         />
       </div>
@@ -4978,7 +4988,7 @@ function getAssetPerformance(asset: PatrimonyAsset) {
     };
   }
 
-  if (!hasCurrentValue) {
+  if (!hasCurrentValue || asset.currentValueIsEstimated) {
     return {
       profit: null,
       returnPercentage: null,
@@ -4996,7 +5006,11 @@ function getAssetPerformance(asset: PatrimonyAsset) {
 }
 
 function hasAssetCurrentValue(asset: PatrimonyAsset) {
-  return asset.hasCurrentValuation || Math.abs(asset.manualValue) > 0;
+  return (
+    asset.hasCurrentValuation ||
+    asset.currentValueIsEstimated ||
+    Math.abs(asset.manualValue) > 0
+  );
 }
 
 function getAssetCurrentValueLabel(asset: PatrimonyAsset) {
@@ -5009,6 +5023,13 @@ function getAssetCurrentValueLabel(asset: PatrimonyAsset) {
 
 function getAssetCostSummary(asset: PatrimonyAsset) {
   const performance = getAssetPerformance(asset);
+
+  if (performance.totalCost !== null && asset.currentValueIsEstimated) {
+    return `Valor estimado por coste - ${formatMoney(
+      performance.totalCost,
+      asset.currency
+    )}`;
+  }
 
   if (performance.totalCost !== null && !hasAssetCurrentValue(asset)) {
     return `Coste invertido: ${formatMoney(performance.totalCost, asset.currency)}`;

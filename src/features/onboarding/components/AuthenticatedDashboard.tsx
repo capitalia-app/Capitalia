@@ -211,6 +211,7 @@ export function AuthenticatedDashboard({
       categoryId: target.categoryId ?? '',
       dateFrom: formatDateInput(monthStart),
       dateTo: formatDateInput(monthEnd),
+      metric: target.metric,
       movementType: target.movementType,
       search: target.search ?? ''
     });
@@ -1535,6 +1536,7 @@ const defaultMovementFilters = {
   categoryId: '',
   dateFrom: '',
   dateTo: '',
+  metric: undefined,
   movementType: 'all',
   search: ''
 } satisfies MovementFilters;
@@ -1676,6 +1678,7 @@ function MovementAdvancedFilters({
         <select
           onChange={(event) =>
             onChange({
+              metric: undefined,
               movementType: event.target.value as MovementReviewFilter
             })
           }

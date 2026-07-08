@@ -1,6 +1,7 @@
 import type { FinancialAccount } from '@/features/finance/lib/accounts';
 import { listFinancialAccounts } from '@/features/finance/lib/accounts';
 import {
+  applyCategoryRuleToExistingTransactions,
   deriveRuleKeyword,
   listTransactionCategories,
   mapMovementTypeToTransactionType,
@@ -227,6 +228,12 @@ export async function updateMovement(input: {
       if (ruleError) {
         throw ruleError;
       }
+
+      await applyCategoryRuleToExistingTransactions({
+        categoryId: input.categoryId,
+        keyword,
+        workspaceId: input.workspaceId
+      });
     }
   }
 }

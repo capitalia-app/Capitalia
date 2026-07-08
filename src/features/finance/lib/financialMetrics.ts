@@ -8,6 +8,7 @@ export type MetricTransaction = {
   accountName: string;
   amount: number;
   description: string;
+  direction: 'inflow' | 'outflow';
   movementType: MovementType;
 };
 
@@ -15,13 +16,20 @@ export type MetricFilter = {
   metric: FinancialMetric;
   movementTypes: MovementType[];
   accountIds?: string[];
-  amountSign?: 'positive' | 'negative';
+  direction?: 'inflow' | 'outflow';
+};
+
+export type MonthlyFinancialMetrics = {
+  income: number[];
+  expenses: number[];
+  savings: number[];
+  balance: number[];
 };
 
 export function buildMetricFilter(metric: FinancialMetric, accounts: FinancialAccount[]) {
   if (metric === 'income') {
     return {
-      amountSign: 'positive',
+      direction: 'inflow',
       metric,
       movementTypes: ['income']
     } satisfies MetricFilter;
@@ -29,7 +37,7 @@ export function buildMetricFilter(metric: FinancialMetric, accounts: FinancialAc
 
   if (metric === 'expense') {
     return {
-      amountSign: 'negative',
+      direction: 'outflow',
       metric,
       movementTypes: ['expense']
     } satisfies MetricFilter;
@@ -38,7 +46,7 @@ export function buildMetricFilter(metric: FinancialMetric, accounts: FinancialAc
   if (metric === 'savings') {
     return {
       accountIds: getWealthBuildingAccountIds(accounts),
-      amountSign: 'positive',
+      direction: 'inflow',
       metric,
       movementTypes: ['investment', 'transfer']
     } satisfies MetricFilter;
@@ -62,11 +70,7 @@ export function matchesMetricFilter(
     return false;
   }
 
-  if (filter.amountSign === 'positive' && transaction.amount <= 0) {
-    return false;
-  }
-
-  if (filter.amountSign === 'negative' && transaction.amount >= 0) {
+  if (filter.direction && transaction.direction !== filter.direction) {
     return false;
   }
 
@@ -79,11 +83,67 @@ export function sumMetricTransactions(
 ) {
   return transactions
     .filter((transaction) => matchesMetricFilter(transaction, filter))
-    .reduce((total, transaction) => total + transaction.amount, 0);
+    .reduce((total, transaction) => total + getSignedAmount(transaction), 0);
 }
 
-export function calculateMonthlyBalance(input: { income: number; expenses: number }) {
-  return input.income + input.expenses;
+export function calculateMonthlyFinancialMetrics<TTransaction extends MetricTransaction>(
+  transactions: TTransaction[],
+  accounts: FinancialAccount[],
+  getMonth: (transaction: TTransaction) => number
+) {
+  const incomeFilter = buildMetricFilter('income', accounts);
+  const expenseFilter = buildMetricFilter('expense', accounts);
+  const savingsFilter = buildMetricFilter('savings', accounts);
+  const income = createEmptyMonths();
+  const expenses = createEmptyMonths();
+  const savings = createEmptyMonths();
+
+  transactions.forEach((transaction) => {
+    const month = getMonth(transaction);
+
+    if (month < 0 || month > 11) {
+      return;
+    }
+
+    if (matchesMetricFilter(transaction, incomeFilter)) {
+      income[month] = (income[month] ?? 0) + getSignedAmount(transaction);
+    }
+
+    if (matchesMetricFilter(transaction, expenseFilter)) {
+      expenses[month] = (expenses[month] ?? 0) + getSignedAmount(transaction);
+    }
+
+    if (matchesMetricFilter(transaction, savingsFilter)) {
+      savings[month] = (savings[month] ?? 0) + getSignedAmount(transaction);
+    }
+  });
+
+  return {
+    balance: income.map((monthlyIncome, month) =>
+      calculateMonthlyBalance({
+        expenses: expenses[month] ?? 0,
+        income: monthlyIncome,
+        savings: savings[month] ?? 0
+      })
+    ),
+    expenses,
+    income,
+    savings
+  } satisfies MonthlyFinancialMetrics;
+}
+
+export function calculateMonthlyBalance(input: {
+  income: number;
+  expenses: number;
+  savings: number;
+}) {
+  return input.income + input.expenses - input.savings;
+}
+
+export function getSignedAmount(transaction: MetricTransaction) {
+  const amount = Math.abs(transaction.amount);
+
+  return transaction.direction === 'inflow' ? amount : -amount;
 }
 
 export function getWealthBuildingAccountIds(accounts: FinancialAccount[]) {
@@ -117,4 +177,8 @@ function normalizeText(value: string) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
+}
+
+function createEmptyMonths() {
+  return Array.from({ length: 12 }, () => 0);
 }

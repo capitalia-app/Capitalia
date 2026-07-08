@@ -126,12 +126,8 @@ export async function listMovements(input: {
       query = query.in('account_id', metricFilter.accountIds);
     }
 
-    if (metricFilter.amountSign === 'positive') {
-      query = query.gt('amount', 0);
-    }
-
-    if (metricFilter.amountSign === 'negative') {
-      query = query.lt('amount', 0);
+    if (metricFilter.direction) {
+      query = query.eq('direction', metricFilter.direction);
     }
   } else if (input.filters.movementType === 'pending') {
     query = query.eq('is_reviewed', false);

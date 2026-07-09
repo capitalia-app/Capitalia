@@ -50,6 +50,8 @@ export type DashboardSummary = {
   workspace: WorkspaceSummary;
   currency: string;
   netWorth: number;
+  grossWorth: number;
+  debt: number;
   monthIncome: number;
   monthExpenses: number;
   monthInvested: number;
@@ -188,21 +190,31 @@ export async function getDashboardSummary() {
     buildMetricFilter('savings', metricAccounts)
   );
   const transfersSinceStart = investedSinceStart;
-  const accountBalances = accountingSummary.accounts.map((account) => ({
-    id: account.accountId,
-    name: account.containerName ?? account.accountName,
-    currency: account.currency,
-    balance:
-      account.kind === 'investment_platform'
-        ? account.platformTotal
-        : account.calculatedBalance
-  }));
+  const accountBalances = accountingSummary.accounts
+    .map((account) => ({
+      id: account.accountId,
+      name: account.containerName ?? account.accountName,
+      currency: account.currency,
+      balance: account.calculatedBalance,
+      kind: account.kind
+    }))
+    .filter(
+      (account) => account.kind === 'cash' || account.kind === 'investment_platform'
+    )
+    .map((account) => ({
+      balance: account.balance,
+      currency: account.currency,
+      id: account.id,
+      name: account.name
+    }));
   const estimatedNetWorth = accountingSummary.patrimony.currentPatrimony;
 
   return {
     workspace,
     currency: workspace.baseCurrency,
     netWorth: estimatedNetWorth,
+    grossWorth: accountingSummary.patrimony.grossPatrimony,
+    debt: accountingSummary.patrimony.debts,
     monthIncome,
     monthExpenses,
     monthInvested,

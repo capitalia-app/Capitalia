@@ -241,7 +241,7 @@ export async function applyCategoryRuleToExistingTransactions(input: {
       category_id: category.id,
       is_reviewed: true,
       movement_type: category.movementType,
-      transaction_type: mapMovementTypeToTransactionType(category.movementType)
+      transaction_type: mapCategoryToTransactionType(category)
     })
     .eq('workspace_id', input.workspaceId)
     .ilike('description', `%${escapeIlikePattern(keyword)}%`);
@@ -430,6 +430,23 @@ export function mapMovementTypeToTransactionType(type: MovementType) {
   }
 
   return type;
+}
+
+function mapCategoryToTransactionType(category: TransactionCategory) {
+  const normalizedName = normalizeForMatch(category.name);
+
+  if (
+    normalizedName.includes('amortizacion hipoteca') ||
+    normalizedName.includes('pago hipoteca')
+  ) {
+    return 'mortgage_principal';
+  }
+
+  if (normalizedName.includes('intereses hipoteca')) {
+    return 'mortgage_interest';
+  }
+
+  return mapMovementTypeToTransactionType(category.movementType);
 }
 
 function getDetailedTransactionType(

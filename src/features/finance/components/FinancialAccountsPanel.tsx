@@ -24,10 +24,7 @@ const accountTypes = [
   { value: 'checking', label: 'Banco' },
   { value: 'brokerage', label: 'Broker' },
   { value: 'crypto_wallet', label: 'Wallet cripto' },
-  { value: 'cash', label: 'Efectivo' },
-  { value: 'real_estate', label: 'Inmueble' },
-  { value: 'business', label: 'Empresa' },
-  { value: 'other', label: 'Otro' }
+  { value: 'cash', label: 'Efectivo' }
 ] satisfies Array<{ value: FinancialAccountType; label: string }>;
 
 const initialFormState = {
@@ -75,7 +72,7 @@ export function FinancialAccountsPanel() {
 
       setWorkspace(currentWorkspace);
       setInstitutions(institutionOptions);
-      setAccounts(accountRows);
+      setAccounts(accountRows.filter(isCashOrPlatformAccount));
       setFormState((current) => ({
         ...current,
         currency: currentWorkspace.baseCurrency || 'EUR',
@@ -310,6 +307,10 @@ export function FinancialAccountsPanel() {
       ) : null}
     </section>
   );
+}
+
+function isCashOrPlatformAccount(account: FinancialAccount) {
+  return ['checking', 'brokerage', 'crypto_wallet', 'cash'].includes(account.type);
 }
 
 function getAccountTypeLabel(type: FinancialAccountType) {

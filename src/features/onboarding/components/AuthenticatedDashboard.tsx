@@ -710,14 +710,12 @@ function HomePanel({
   const hasContainers = summary.containers.length > 0;
   const hasTransactions = summary.recentTransactions.length > 0;
   const hasStartingPoint = Boolean(summary.snapshot);
-  const containerGrossWorth = getAllContainerAssets(summary.containers)
-    .filter((asset) => asset.assetType !== 'liability')
-    .reduce((total, asset) => total + Math.max(asset.manualValue, 0), 0);
-  const containerDebt = getAllContainerAssets(summary.containers)
-    .filter((asset) => asset.assetType === 'liability')
-    .reduce((total, asset) => total + Math.abs(asset.manualValue), 0);
-  const initialGrossWorth = summary.initialGrossWorth ?? containerGrossWorth;
-  const initialDebt = summary.initialDebt ?? containerDebt;
+  const realEstateRows = getRealEstateRows(summary.containers);
+  const debtRows = getDebtRows(summary.containers);
+  const currentGrossWorth = summary.grossWorth;
+  const currentDebt = summary.debt;
+  const initialGrossWorth = summary.initialGrossWorth ?? currentGrossWorth;
+  const initialDebt = summary.initialDebt ?? currentDebt;
   const initialNetWorth = summary.initialNetWorth ?? initialGrossWorth - initialDebt;
   const currentAccountRows =
     summary.accounts.length > 0
@@ -727,12 +725,7 @@ function HomePanel({
           label: account.name,
           value: account.balance
         }))
-      : summary.containers.map((container) => ({
-          currency: container.currency,
-          id: container.id,
-          label: getContainerDisplayName(container),
-          value: container.totalValue
-        }));
+      : getCashContainerRows(summary.containers);
   const yearOptions = annualSummary?.availableYears.length
     ? annualSummary.availableYears
     : [selectedYear];
@@ -821,7 +814,10 @@ function HomePanel({
             <h2>Saldos actuales</h2>
           </div>
           <strong>
-            {formatMoney(annualSummary?.netWorth ?? summary.netWorth, summary.currency)}
+            {formatMoney(
+              currentAccountRows.reduce((total, account) => total + account.value, 0),
+              summary.currency
+            )}
           </strong>
         </div>
 
@@ -849,6 +845,85 @@ function HomePanel({
         )}
       </section>
 
+      <section className="accounts-panel" aria-label="Patrimonio inmobiliario">
+        <div className="section-heading accounts-heading">
+          <div>
+            <p className="eyebrow">Inmuebles</p>
+            <h2>Patrimonio inmobiliario</h2>
+          </div>
+          <strong>
+            {formatMoney(
+              realEstateRows.reduce((total, asset) => total + asset.netValue, 0),
+              summary.currency
+            )}
+          </strong>
+        </div>
+
+        {realEstateRows.length > 0 ? (
+          <div className="account-list">
+            {realEstateRows.map((asset) => (
+              <article className="account-row account-row--stacked" key={asset.id}>
+                <div>
+                  <strong>{asset.name}</strong>
+                  <span>
+                    Valor actual: {formatMoney(asset.currentValue, asset.currency)}
+                  </span>
+                  <span>
+                    Coste:{' '}
+                    {asset.totalCost === null
+                      ? 'No informado'
+                      : formatMoney(asset.totalCost, asset.currency)}
+                  </span>
+                  <span>
+                    Deuda vinculada: {formatMoney(asset.linkedDebt, asset.currency)}
+                  </span>
+                </div>
+                <div>
+                  <strong>{formatMoney(asset.netValue, asset.currency)}</strong>
+                  <span>Patrimonio neto inmueble</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state-card">
+            <span>Sin inmuebles registrados</span>
+            <p>Los inmuebles se gestionan como activos patrimoniales, no como cuentas.</p>
+          </div>
+        )}
+      </section>
+
+      <section className="accounts-panel" aria-label="Deudas">
+        <div className="section-heading accounts-heading">
+          <div>
+            <p className="eyebrow">Pasivo</p>
+            <h2>Deudas</h2>
+          </div>
+          <strong>{formatMoney(currentDebt, summary.currency)}</strong>
+        </div>
+
+        {debtRows.length > 0 ? (
+          <div className="account-list">
+            {debtRows.map((debt) => (
+              <article className="account-row" key={debt.id}>
+                <div>
+                  <strong>{debt.name}</strong>
+                  <span>{debt.linkedRealEstateName ?? 'Sin inmueble vinculado'}</span>
+                </div>
+                <div>
+                  <strong>{formatMoney(debt.amount, debt.currency)}</strong>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state-card">
+            <span>Sin deudas registradas</span>
+            <p>Las hipotecas y prestamos viven aqui, no como cuentas negativas.</p>
+          </div>
+        )}
+      </section>
+
       <section className="metric-grid" aria-label="Punto de partida">
         <MetricCard
           label="Patrimonio inicial"
@@ -857,9 +932,14 @@ function HomePanel({
         />
         <MetricCard
           label="Patrimonio bruto"
-          value={formatMoney(initialGrossWorth, summary.currency)}
+          value={formatMoney(currentGrossWorth, summary.currency)}
         />
-        <MetricCard label="Deudas" value={formatMoney(initialDebt, summary.currency)} />
+        <MetricCard label="Deudas" value={formatMoney(currentDebt, summary.currency)} />
+        <MetricCard
+          label="Patrimonio neto"
+          value={formatMoney(summary.netWorth, summary.currency)}
+          tone="investment"
+        />
       </section>
 
       {!hasContainers && !hasStartingPoint ? (
@@ -1435,9 +1515,14 @@ function AuditPanel({
           value={formatMoney(audit.patrimony.investmentPlatforms, audit.currency)}
         />
         <MetricCard
-          label="Valor activos"
+          label="Activos financieros"
           tone="income"
           value={formatMoney(audit.patrimony.financialAssets, audit.currency)}
+        />
+        <MetricCard
+          label="Inmuebles"
+          tone="balance"
+          value={formatMoney(audit.patrimony.realEstateAssets, audit.currency)}
         />
         <MetricCard
           label="Deudas"
@@ -1453,7 +1538,9 @@ function AuditPanel({
           <span>{formatMoney(audit.patrimony.currentPatrimony, audit.currency)}</span>
         </div>
         <div className="audit-formula">
-          patrimonio = efectivo/cuentas + efectivo en plataformas + valor activos - deudas
+          patrimonio bruto = efectivo/cuentas + efectivo en plataformas + activos
+          financieros + inmuebles. patrimonio neto = patrimonio bruto - deudas. balance
+          mensual = ingresos - gastos; ahorro/inversion no reduce balance.
         </div>
         {audit.patrimony.warning ? (
           <div className="audit-warning">{audit.patrimony.warning}</div>
@@ -5706,6 +5793,93 @@ function sumContainerValues(containers: FinancialContainer[]) {
 
 function getAllContainerAssets(containers: FinancialContainer[]) {
   return containers.flatMap((container) => container.assets);
+}
+
+function getCashContainerRows(containers: FinancialContainer[]) {
+  return containers
+    .filter((container) =>
+      ['bank', 'broker', 'wallet', 'exchange', 'cash'].includes(container.containerType)
+    )
+    .map((container) => ({
+      currency: container.currency,
+      id: container.id,
+      label: getContainerDisplayName(container),
+      value: getContainerCashValue(container)
+    }))
+    .filter((row) => row.value !== 0);
+}
+
+function getContainerCashValue(container: FinancialContainer) {
+  return container.assets
+    .filter((asset) => asset.assetType === 'cash')
+    .reduce((total, asset) => total + Math.max(asset.manualValue, 0), 0);
+}
+
+function getRealEstateRows(containers: FinancialContainer[]) {
+  const assets = getAllContainerAssets(containers);
+  const realEstateAssets = assets.filter((asset) => asset.assetType === 'real_estate');
+  const liabilities = assets.filter((asset) => asset.assetType === 'liability');
+
+  return realEstateAssets.map((asset) => {
+    const linkedDebts = liabilities.filter((liability) =>
+      isDebtLinkedToRealEstate(liability, asset, realEstateAssets.length)
+    );
+    const linkedDebt = linkedDebts.reduce(
+      (total, liability) => total + Math.abs(liability.manualValue),
+      0
+    );
+    const currentValue = Math.max(asset.manualValue, 0);
+
+    return {
+      currency: asset.currency,
+      currentValue,
+      id: asset.id,
+      linkedDebt,
+      name: asset.name,
+      netValue: currentValue - linkedDebt,
+      totalCost: asset.totalCost
+    };
+  });
+}
+
+function getDebtRows(containers: FinancialContainer[]) {
+  const assets = getAllContainerAssets(containers);
+  const realEstateAssets = assets.filter((asset) => asset.assetType === 'real_estate');
+
+  return assets
+    .filter((asset) => asset.assetType === 'liability')
+    .map((asset) => ({
+      amount: Math.abs(asset.manualValue),
+      currency: asset.currency,
+      id: asset.id,
+      linkedRealEstateName:
+        realEstateAssets.find((realEstate) =>
+          isDebtLinkedToRealEstate(asset, realEstate, realEstateAssets.length)
+        )?.name ?? null,
+      name: asset.name
+    }));
+}
+
+function isDebtLinkedToRealEstate(
+  debt: PatrimonyAsset,
+  realEstate: PatrimonyAsset,
+  realEstateCount: number
+) {
+  if (debt.linkedAssetId) {
+    return debt.linkedAssetId === realEstate.id;
+  }
+
+  if (debt.containerId && debt.containerId === realEstate.containerId) {
+    return true;
+  }
+
+  return realEstateCount === 1 && isMortgageDebt(debt);
+}
+
+function isMortgageDebt(debt: PatrimonyAsset) {
+  const text = `${debt.name} ${debt.notes ?? ''}`.toLowerCase();
+
+  return text.includes('hipoteca') || text.includes('mortgage');
 }
 
 function groupAssetsByType(assets: PatrimonyAsset[]) {

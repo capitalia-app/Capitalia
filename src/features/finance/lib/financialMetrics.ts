@@ -141,8 +141,7 @@ export function calculateMonthlyFinancialMetrics<TTransaction extends MetricTran
     balance: income.map((monthlyIncome, month) =>
       calculateMonthlyBalance({
         expenses: expenses[month] ?? 0,
-        income: monthlyIncome,
-        savings: savings[month] ?? 0
+        income: monthlyIncome
       })
     ),
     expenses,
@@ -154,9 +153,9 @@ export function calculateMonthlyFinancialMetrics<TTransaction extends MetricTran
 export function calculateMonthlyBalance(input: {
   income: number;
   expenses: number;
-  savings: number;
+  savings?: number;
 }) {
-  return input.income + input.expenses - input.savings;
+  return input.income + input.expenses;
 }
 
 export function getSignedAmount(transaction: MetricTransaction) {

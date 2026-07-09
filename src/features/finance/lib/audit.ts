@@ -1,4 +1,5 @@
 import { getCurrentWorkspace } from '@/features/finance/lib/accounts';
+import { findDuplicateGroups } from '@/features/finance/lib/duplicateDetection';
 import {
   getLatestPatrimonialSnapshot,
   listFinancialContainers,
@@ -64,8 +65,24 @@ export type AccountingAuditSummary = {
   accounts: AuditAccountRow[];
   containers: FinancialContainer[];
   patrimony: AuditPatrimonyBreakdown;
+  duplicateGroups: AuditDuplicateGroup[];
   suspiciousMovements: AuditSuspiciousMovement[];
   logs: string[];
+};
+
+export type AuditDuplicateGroup = {
+  primary: AuditDuplicateTransaction;
+  duplicates: AuditDuplicateTransaction[];
+};
+
+export type AuditDuplicateTransaction = {
+  id: string;
+  accountId: string;
+  accountName: string;
+  amount: number;
+  date: string;
+  description: string;
+  direction: 'inflow' | 'outflow';
 };
 
 type AccountRecord = {
@@ -145,6 +162,10 @@ export async function getAccountingAuditSummary(year: number) {
       'Los saldos system=0 se muestran, pero no se usan como saldo inicial contable.'
     ],
     patrimony,
+    duplicateGroups: findExistingDuplicateGroups({
+      accountsById,
+      transactions
+    }),
     suspiciousMovements: findSuspiciousMovements({
       accountsById,
       linkedTransactionsById,
@@ -152,6 +173,25 @@ export async function getAccountingAuditSummary(year: number) {
     }),
     year
   } satisfies AccountingAuditSummary;
+}
+
+export async function hideDuplicateTransaction(transactionId: string) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const workspace = await getCurrentWorkspace();
+  const { error } = await supabase
+    .from('transactions')
+    .update({
+      deleted_at: new Date().toISOString()
+    })
+    .eq('id', transactionId)
+    .eq('workspace_id', workspace.id);
+
+  if (error) {
+    throw error;
+  }
 }
 
 async function getAccounts(workspaceId: string) {
@@ -480,6 +520,46 @@ function findPossibleDuplicateIds(transactions: TransactionRecord[]) {
       .filter((group) => group.length > 1)
       .flatMap((group) => group.map((transaction) => transaction.id))
   );
+}
+
+function findExistingDuplicateGroups(input: {
+  accountsById: Map<string, AccountRecord>;
+  transactions: TransactionRecord[];
+}) {
+  return findDuplicateGroups(
+    input.transactions.map((transaction) => ({
+      accountId: transaction.account_id,
+      accountName: input.accountsById.get(transaction.account_id)?.name ?? 'Cuenta',
+      amount: Number(transaction.amount),
+      date: transaction.occurred_at.slice(0, 10),
+      description: transaction.description,
+      direction: transaction.direction,
+      id: transaction.id
+    }))
+  ).map((group) => ({
+    duplicates: group.duplicates.map(mapAuditDuplicateTransaction),
+    primary: mapAuditDuplicateTransaction(group.primary)
+  }));
+}
+
+function mapAuditDuplicateTransaction(transaction: {
+  accountId: string;
+  accountName: string;
+  amount: number;
+  date: string;
+  description: string;
+  direction: 'inflow' | 'outflow';
+  id?: string;
+}) {
+  return {
+    accountId: transaction.accountId,
+    accountName: transaction.accountName,
+    amount: transaction.amount,
+    date: transaction.date,
+    description: transaction.description,
+    direction: transaction.direction,
+    id: transaction.id ?? ''
+  } satisfies AuditDuplicateTransaction;
 }
 
 function sumTransactions(

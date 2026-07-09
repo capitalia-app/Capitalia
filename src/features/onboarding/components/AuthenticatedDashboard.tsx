@@ -19,6 +19,7 @@ import {
 } from '@/features/finance/lib/annualControl';
 import {
   getAccountingAuditSummary,
+  hideDuplicateTransaction,
   type AccountingAuditSummary
 } from '@/features/finance/lib/audit';
 import {
@@ -1350,6 +1351,7 @@ function AuditPanel({
   const [audit, setAudit] = useState<AccountingAuditSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -1380,7 +1382,7 @@ function AuditPanel({
     return () => {
       isMounted = false;
     };
-  }, [selectedYear]);
+  }, [reloadToken, selectedYear]);
 
   if (isLoading) {
     return <p className="panel-status">Calculando auditoria contable...</p>;
@@ -1486,6 +1488,10 @@ function AuditPanel({
 
       <AuditAccountsTable audit={audit} />
       <AuditContainersSection audit={audit} />
+      <AuditDuplicateGroupsSection
+        audit={audit}
+        onHidden={() => setReloadToken((currentToken) => currentToken + 1)}
+      />
       <AuditSuspiciousTable audit={audit} />
 
       <section className="annual-table-card audit-card">
@@ -1619,6 +1625,90 @@ function AuditContainersSection({ audit }: { audit: AccountingAuditSummary }) {
           </article>
         ))}
       </div>
+    </section>
+  );
+}
+
+function AuditDuplicateGroupsSection({
+  audit,
+  onHidden
+}: {
+  audit: AccountingAuditSummary;
+  onHidden: () => void;
+}) {
+  const [isHiding, setIsHiding] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleHideDuplicate(transactionId: string) {
+    setIsHiding(transactionId);
+    setMessage(null);
+    setError(null);
+
+    try {
+      await hideDuplicateTransaction(transactionId);
+      setMessage('Duplicado marcado con deleted_at y ocultado de los calculos.');
+      onHidden();
+    } catch (hideError) {
+      setError(getErrorMessage(hideError));
+    } finally {
+      setIsHiding(null);
+    }
+  }
+
+  return (
+    <section className="annual-table-card audit-card">
+      <div className="section-heading annual-table-heading">
+        <p className="eyebrow">Duplicados</p>
+        <h2>Detectar duplicados existentes</h2>
+        <span>{audit.duplicateGroups.length} grupos</span>
+      </div>
+      {message ? <p className="auth-message auth-message--success">{message}</p> : null}
+      {error ? <p className="auth-message auth-message--error">{error}</p> : null}
+      {audit.duplicateGroups.length > 0 ? (
+        <div className="audit-duplicate-list">
+          {audit.duplicateGroups.map((group) => (
+            <article className="audit-duplicate-card" key={group.primary.id}>
+              <div>
+                <strong>{group.primary.description}</strong>
+                <span>
+                  Mantener: {formatDate(group.primary.date)} ·{' '}
+                  {formatMoney(
+                    group.primary.direction === 'inflow'
+                      ? group.primary.amount
+                      : -group.primary.amount,
+                    audit.currency
+                  )}{' '}
+                  · {group.primary.accountName}
+                </span>
+              </div>
+              {group.duplicates.map((duplicate) => (
+                <div className="audit-duplicate-candidate" key={duplicate.id}>
+                  <span>
+                    Posible duplicado: {formatDate(duplicate.date)} ·{' '}
+                    {duplicate.description}
+                  </span>
+                  <button
+                    className="text-link"
+                    disabled={isHiding === duplicate.id}
+                    onClick={() => void handleHideDuplicate(duplicate.id)}
+                    type="button"
+                  >
+                    {isHiding === duplicate.id
+                      ? 'Ocultando...'
+                      : 'Marcar duplicado y ocultar'}
+                  </button>
+                </div>
+              ))}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state-card">
+          <span>Sin duplicados claros</span>
+          <p>No se han encontrado movimientos equivalentes en este año.</p>
+        </div>
+      )}
     </section>
   );
 }

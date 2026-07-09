@@ -245,7 +245,6 @@ export function AuthenticatedDashboard({
       isLoading={isLoading}
       isAnnualLoading={isAnnualLoading}
       onCellClick={handleOpenMovementsFromCell}
-      onYearChange={setSelectedYear}
       selectedYear={selectedYear}
       summary={summary}
       onCreateSnapshot={() => handleSelectSection('snapshot')}
@@ -335,9 +334,7 @@ export function AuthenticatedDashboard({
   }
 
   if (activeSection === 'audit') {
-    sectionContent = (
-      <AuditPanel selectedYear={selectedYear} onYearChange={setSelectedYear} />
-    );
+    sectionContent = <AuditPanel selectedYear={selectedYear} />;
   }
 
   if (activeSection === 'snapshot') {
@@ -445,20 +442,36 @@ export function AuthenticatedDashboard({
     <ExperienceFrame className="dashboard-screen">
       {!isMenuOpen ? (
         <header className="app-header">
-          <button
-            aria-expanded={isMenuOpen}
-            aria-label="Abrir menu"
-            className="hamburger-button"
-            onClick={() => setIsMenuOpen(true)}
-            type="button"
-          >
-            <span />
-            <span />
-            <span />
-          </button>
-          <BrandMark />
-          <div className="dashboard-session">
-            {userEmail ? <span>Sesion activa: {userEmail}</span> : null}
+          <div className="app-header__brand">
+            <button
+              aria-expanded={isMenuOpen}
+              aria-label="Abrir menu"
+              className="hamburger-button"
+              onClick={() => setIsMenuOpen(true)}
+              type="button"
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+            <BrandMark />
+          </div>
+          <div className="app-header__actions">
+            <GlobalYearSelector
+              onChange={setSelectedYear}
+              selectedYear={selectedYear}
+              years={
+                annualSummary?.availableYears.length
+                  ? annualSummary.availableYears
+                  : [selectedYear]
+              }
+            />
+            <span
+              aria-label="Estado: conectado"
+              className="connection-dot"
+              role="status"
+              title="Conectado"
+            />
           </div>
         </header>
       ) : null}
@@ -559,7 +572,13 @@ function NavigationDrawer({
         </nav>
 
         <div className="drawer-footer">
-          {userEmail ? <span>{userEmail}</span> : null}
+          <div className="drawer-session">
+            <span>Sesion</span>
+            {userEmail ? <strong>{userEmail}</strong> : null}
+            <small>
+              <span aria-hidden="true" className="connection-dot" /> Conectado
+            </small>
+          </div>
           {onSignOut ? (
             <button className="text-link" onClick={onSignOut} type="button">
               Cerrar sesion
@@ -568,6 +587,35 @@ function NavigationDrawer({
         </div>
       </aside>
     </>
+  );
+}
+
+function GlobalYearSelector({
+  onChange,
+  selectedYear,
+  years
+}: {
+  onChange: (year: number) => void;
+  selectedYear: number;
+  years: number[];
+}) {
+  const options = years.includes(selectedYear)
+    ? years
+    : [...years, selectedYear].sort((first, second) => second - first);
+
+  return (
+    <label className="global-year-selector" aria-label="Ano seleccionado">
+      <select
+        onChange={(event) => onChange(Number(event.target.value))}
+        value={selectedYear}
+      >
+        {options.map((year) => (
+          <option key={year} value={year}>
+            {year}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -669,7 +717,6 @@ type HomePanelProps = {
   onImportMovements: () => void;
   onRetry: () => void;
   onViewMovements: () => void;
-  onYearChange: (year: number) => void;
 };
 
 function HomePanel({
@@ -683,7 +730,6 @@ function HomePanel({
   onImportMovements,
   onRetry,
   onViewMovements,
-  onYearChange,
   selectedYear,
   summary
 }: HomePanelProps) {
@@ -726,10 +772,6 @@ function HomePanel({
           value: account.balance
         }))
       : getCashContainerRows(summary.containers);
-  const yearOptions = annualSummary?.availableYears.length
-    ? annualSummary.availableYears
-    : [selectedYear];
-
   return (
     <>
       <section className="dashboard-hero annual-hero" aria-label="Balance general">
@@ -739,19 +781,6 @@ function HomePanel({
           <strong>{selectedYear}</strong>
         </div>
         <p>Construyes patrimonio, no controlas gastos.</p>
-        <label className="year-selector">
-          <span>Ano</span>
-          <select
-            onChange={(event) => onYearChange(Number(event.target.value))}
-            value={selectedYear}
-          >
-            {yearOptions.map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </label>
       </section>
 
       {!hasStartingPoint && !hasContainers ? (
@@ -1421,13 +1450,7 @@ function SavingsPanel({
   );
 }
 
-function AuditPanel({
-  selectedYear,
-  onYearChange
-}: {
-  selectedYear: number;
-  onYearChange: (year: number) => void;
-}) {
+function AuditPanel({ selectedYear }: { selectedYear: number }) {
   const [audit, setAudit] = useState<AccountingAuditSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1481,26 +1504,11 @@ function AuditPanel({
     return null;
   }
 
-  const availableYears = [selectedYear - 1, selectedYear, selectedYear + 1];
-
   return (
     <section className="annual-section" aria-label="Auditoria contable">
       <div className="section-heading">
         <p className="eyebrow">Auditoria</p>
         <h2>Conciliacion contable</h2>
-        <label className="year-selector">
-          <span>Año</span>
-          <select
-            onChange={(event) => onYearChange(Number(event.target.value))}
-            value={selectedYear}
-          >
-            {availableYears.map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </label>
       </div>
 
       <div className="summary-grid audit-summary-grid">

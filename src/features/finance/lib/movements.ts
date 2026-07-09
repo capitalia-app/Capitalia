@@ -44,6 +44,7 @@ export type MoneyMovement = {
   notes: string | null;
   transferGroupId: string | null;
   linkedTransactionId: string | null;
+  linkedAccountId: string | null;
   linkedAccountName: string | null;
 };
 
@@ -72,6 +73,20 @@ type TransactionRecord = {
 type LinkedTransactionRecord = {
   id: string;
   account_id: string;
+};
+
+type EditableTransactionRecord = {
+  id: string;
+  account_id: string;
+  amount: number | string;
+  booked_at: string | null;
+  category_id: string | null;
+  currency: string;
+  direction: 'inflow' | 'outflow';
+  occurred_at: string;
+  description: string;
+  linked_transaction_id: string | null;
+  transfer_group_id: string | null;
 };
 
 export async function getMovementFiltersContext(workspaceId: string) {
@@ -206,6 +221,7 @@ export async function listMovements(input: {
         direction: transaction.direction,
         id: transaction.id,
         isReviewed: transaction.is_reviewed,
+        linkedAccountId: linkedAccount?.id ?? null,
         linkedAccountName: linkedAccount ? getAccountDisplayName(linkedAccount) : null,
         linkedTransactionId: transaction.linked_transaction_id,
         movementType: transaction.movement_type,
@@ -226,6 +242,7 @@ export async function updateMovement(input: {
   movementType: MovementType;
   categoryId: string | null;
   accountId: string;
+  counterpartyAccountId?: string | null;
   notes: string | null;
   isReviewed: boolean;
   rememberRule: boolean;
@@ -233,6 +250,9 @@ export async function updateMovement(input: {
   if (!supabase) {
     throw new Error('Supabase no esta configurado.');
   }
+
+  const transferGroupId =
+    input.movementType === 'transfer' ? await ensureTransferCounterpart(input) : null;
 
   const { error } = await supabase
     .from('transactions')
@@ -243,7 +263,7 @@ export async function updateMovement(input: {
       movement_type: input.movementType,
       notes: input.notes,
       transaction_type: mapMovementTypeToTransactionType(input.movementType),
-      transfer_group_id: input.movementType === 'transfer' ? crypto.randomUUID() : null
+      transfer_group_id: transferGroupId
     })
     .eq('id', input.transactionId)
     .eq('workspace_id', input.workspaceId);
@@ -275,6 +295,113 @@ export async function updateMovement(input: {
       });
     }
   }
+}
+
+async function ensureTransferCounterpart(input: {
+  workspaceId: string;
+  transactionId: string;
+  accountId: string;
+  counterpartyAccountId?: string | null;
+  movementType: MovementType;
+}) {
+  if (!supabase || input.movementType !== 'transfer') {
+    return null;
+  }
+
+  const { data: source, error: sourceError } = await supabase
+    .from('transactions')
+    .select(
+      'id, account_id, amount, booked_at, category_id, currency, direction, occurred_at, description, linked_transaction_id, transfer_group_id'
+    )
+    .eq('id', input.transactionId)
+    .eq('workspace_id', input.workspaceId)
+    .single<EditableTransactionRecord>();
+
+  if (sourceError) {
+    throw sourceError;
+  }
+
+  const transferGroupId = source.transfer_group_id ?? crypto.randomUUID();
+
+  if (!input.counterpartyAccountId || input.counterpartyAccountId === input.accountId) {
+    return transferGroupId;
+  }
+
+  const counterpartDirection = source.direction === 'inflow' ? 'outflow' : 'inflow';
+  const counterpartDescription =
+    source.direction === 'outflow'
+      ? `Transferencia interna desde ${source.description}`
+      : `Transferencia interna hacia ${source.description}`;
+
+  if (source.linked_transaction_id) {
+    const { error: linkedError } = await supabase
+      .from('transactions')
+      .update({
+        account_id: input.counterpartyAccountId,
+        amount: Number(source.amount),
+        booked_at: source.booked_at,
+        currency: source.currency,
+        direction: counterpartDirection,
+        movement_type: 'transfer',
+        occurred_at: source.occurred_at,
+        status: 'posted',
+        transaction_type: 'transfer',
+        transfer_group_id: transferGroupId
+      })
+      .eq('id', source.linked_transaction_id)
+      .eq('workspace_id', input.workspaceId);
+
+    if (linkedError) {
+      throw linkedError;
+    }
+
+    return transferGroupId;
+  }
+
+  const { data: counterpart, error: counterpartError } = await supabase
+    .from('transactions')
+    .insert({
+      account_id: input.counterpartyAccountId,
+      amount: Number(source.amount),
+      booked_at: source.booked_at,
+      category_id: null,
+      confidence_score: 0.9,
+      currency: source.currency,
+      description: counterpartDescription,
+      direction: counterpartDirection,
+      fingerprint: `manual-transfer-counterpart|${input.workspaceId}|${input.transactionId}|${input.counterpartyAccountId}`,
+      import_batch_id: null,
+      is_reviewed: true,
+      linked_transaction_id: input.transactionId,
+      movement_type: 'transfer',
+      occurred_at: source.occurred_at,
+      raw_import_record_id: null,
+      status: 'posted',
+      transaction_type: 'transfer',
+      transfer_group_id: transferGroupId,
+      workspace_id: input.workspaceId
+    })
+    .select('id')
+    .single<{ id: string }>();
+
+  if (counterpartError) {
+    throw counterpartError;
+  }
+
+  const { error: sourceLinkError } = await supabase
+    .from('transactions')
+    .update({
+      linked_transaction_id: counterpart.id,
+      transfer_group_id: transferGroupId
+    })
+    .eq('id', input.transactionId)
+    .eq('workspace_id', input.workspaceId);
+
+  if (sourceLinkError) {
+    throw sourceLinkError;
+  }
+
+  return transferGroupId;
 }
 
 async function getLinkedTransactionsById(transactionIds: string[]) {

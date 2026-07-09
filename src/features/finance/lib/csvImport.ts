@@ -59,6 +59,12 @@ type TransferCandidateRecord = {
   transfer_group_id: string | null;
 };
 
+type AutoCounterpartRecord = {
+  amount: number | string;
+  direction: 'inflow' | 'outflow';
+  occurred_at: string;
+};
+
 type ImportBatchRecord = {
   id: string;
 };
@@ -91,6 +97,8 @@ type TransferLinkPlan = {
   fingerprint: string;
   transferGroupId: string;
   linkedTransactionId: string | null;
+  counterpartyContainerId: string | null;
+  counterpartyAccountId: string | null;
 };
 
 export async function getCsvImportContext() {
@@ -124,6 +132,9 @@ export async function saveCsvImport(params: {
     container: params.container,
     workspaceId: params.workspaceId
   });
+  const containers = (await listFinancialContainers(params.workspaceId))
+    .filter((container) => container.id !== 'unassigned')
+    .map(mapContainerToImportOption);
   const classifiedTransactions = await classifyImportedTransactions(
     params.workspaceId,
     params.transactions
@@ -184,10 +195,18 @@ export async function saveCsvImport(params: {
       .map((transaction) => transaction.import_hash)
       .filter((importHash): importHash is string => Boolean(importHash))
   );
-  const newTransactions = transactionsWithImportHash.filter(
+  const candidateTransactions = transactionsWithImportHash.filter(
     (transaction) =>
       !existingFingerprints.has(transaction.fingerprint) &&
       !existingImportHashes.has(transaction.importHash)
+  );
+  const existingAutoCounterparts = await findExistingAutoCounterparts({
+    accountId,
+    transactions: candidateTransactions,
+    workspaceId: params.workspaceId
+  });
+  const newTransactions = candidateTransactions.filter(
+    (transaction) => !existingAutoCounterparts.has(transaction.fingerprint)
   );
   const sourceFormat = transactionsWithImportHash[0]?.sourceFormat ?? 'unknown';
   const duplicateCount = transactionsWithImportHash.length - newTransactions.length;
@@ -196,6 +215,8 @@ export async function saveCsvImport(params: {
   ).length;
   const transferPlans = await createTransferLinkPlans({
     accountId,
+    containers,
+    selectedContainer: params.container,
     transactions: newTransactions,
     workspaceId: params.workspaceId
   });
@@ -287,7 +308,7 @@ export async function saveCsvImport(params: {
           booked_at: `${transaction.date}T12:00:00.000Z`,
           category_id: transaction.categoryId,
           confidence_score: 0.92,
-          counterparty_container_id: null,
+          counterparty_container_id: transferPlan?.counterpartyContainerId ?? null,
           currency: transaction.currency,
           description: transaction.description,
           direction: transaction.direction,
@@ -314,6 +335,9 @@ export async function saveCsvImport(params: {
   }
 
   await linkMatchedTransferTransactions({
+    accountId,
+    batchId: batch.id,
+    container: params.container,
     insertedTransactions,
     plansByFingerprint: transferPlansByFingerprint,
     selectedContainerId: params.container.id,
@@ -505,9 +529,81 @@ function mapCategoryNameToLegacyAssetType(categoryName: string | null) {
   return 'security';
 }
 
+async function findExistingAutoCounterparts(input: {
+  workspaceId: string;
+  accountId: string;
+  transactions: (ClassifiedImportTransaction & { importHash: string })[];
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const transferTransactions = input.transactions.filter(
+    (transaction) => transaction.movementType === 'transfer'
+  );
+
+  if (transferTransactions.length === 0) {
+    return new Set<string>();
+  }
+
+  const dates = transferTransactions.map((transaction) => transaction.date).sort();
+  const from = `${dates[0]}T00:00:00.000Z`;
+  const to = `${dates[dates.length - 1]}T23:59:59.999Z`;
+  const { data, error } = await supabase
+    .from('transactions')
+    .select('amount, direction, occurred_at')
+    .eq('workspace_id', input.workspaceId)
+    .eq('account_id', input.accountId)
+    .eq('status', 'posted')
+    .eq('movement_type', 'transfer')
+    .not('linked_transaction_id', 'is', null)
+    .like('fingerprint', 'internal-transfer-counterpart|%')
+    .gte('occurred_at', from)
+    .lte('occurred_at', to)
+    .returns<AutoCounterpartRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  const existingKeys = new Set(
+    data.map((transaction) =>
+      getTransferDeduplicationKey({
+        amount: Number(transaction.amount),
+        date: transaction.occurred_at.slice(0, 10),
+        direction: transaction.direction
+      })
+    )
+  );
+
+  return new Set(
+    transferTransactions
+      .filter((transaction) =>
+        existingKeys.has(
+          getTransferDeduplicationKey({
+            amount: transaction.amount,
+            date: transaction.date,
+            direction: transaction.direction
+          })
+        )
+      )
+      .map((transaction) => transaction.fingerprint)
+  );
+}
+
+function getTransferDeduplicationKey(input: {
+  date: string;
+  amount: number;
+  direction: 'inflow' | 'outflow';
+}) {
+  return [input.date, input.direction, Math.abs(input.amount).toFixed(4)].join('|');
+}
+
 async function createTransferLinkPlans(input: {
   workspaceId: string;
   accountId: string;
+  selectedContainer: ImportContainerOption;
+  containers: ImportContainerOption[];
   transactions: ClassifiedImportTransaction[];
 }) {
   const plans: TransferLinkPlan[] = [];
@@ -525,8 +621,23 @@ async function createTransferLinkPlans(input: {
       direction: transaction.direction,
       workspaceId: input.workspaceId
     });
+    const counterparty = match
+      ? null
+      : resolveCounterpartyContainer({
+          containers: input.containers,
+          description: transaction.description,
+          selectedContainer: input.selectedContainer
+        });
+    const counterpartyAccountId = counterparty
+      ? await ensureFinancialAccountForContainer({
+          container: counterparty,
+          workspaceId: input.workspaceId
+        })
+      : null;
 
     plans.push({
+      counterpartyAccountId,
+      counterpartyContainerId: counterparty?.id ?? null,
       fingerprint: transaction.fingerprint,
       linkedTransactionId: match?.id ?? null,
       transferGroupId: match?.transfer_group_id ?? transferGroupId
@@ -578,6 +689,9 @@ async function findMatchingTransfer(input: {
 
 async function linkMatchedTransferTransactions(input: {
   workspaceId: string;
+  accountId: string;
+  batchId: string;
+  container: ImportContainerOption;
   selectedContainerId: string;
   insertedTransactions: InsertedTransactionRecord[];
   plansByFingerprint: Map<string, TransferLinkPlan>;
@@ -593,6 +707,19 @@ async function linkMatchedTransferTransactions(input: {
       const plan = input.plansByFingerprint.get(transaction.fingerprint);
 
       if (!plan?.linkedTransactionId) {
+        if (plan?.counterpartyAccountId) {
+          await createCounterpartyTransferTransaction({
+            accountId: input.accountId,
+            batchId: input.batchId,
+            container: input.container,
+            counterpartyAccountId: plan.counterpartyAccountId,
+            counterpartyContainerId: plan.counterpartyContainerId,
+            insertedTransaction: transaction,
+            plan,
+            workspaceId: input.workspaceId
+          });
+        }
+
         return;
       }
 
@@ -611,6 +738,192 @@ async function linkMatchedTransferTransactions(input: {
       }
     })
   );
+}
+
+async function createCounterpartyTransferTransaction(input: {
+  workspaceId: string;
+  accountId: string;
+  batchId: string;
+  container: ImportContainerOption;
+  counterpartyAccountId: string;
+  counterpartyContainerId: string | null;
+  insertedTransaction: InsertedTransactionRecord;
+  plan: TransferLinkPlan;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const { data: source, error: sourceError } = await supabase
+    .from('transactions')
+    .select('amount, currency, direction, occurred_at, booked_at, description')
+    .eq('id', input.insertedTransaction.id)
+    .eq('workspace_id', input.workspaceId)
+    .single<{
+      amount: number | string;
+      currency: string;
+      direction: 'inflow' | 'outflow';
+      occurred_at: string;
+      booked_at: string | null;
+      description: string;
+    }>();
+
+  if (sourceError) {
+    throw sourceError;
+  }
+
+  const counterpartyDirection = source.direction === 'inflow' ? 'outflow' : 'inflow';
+  const counterpartyDescription =
+    source.direction === 'outflow'
+      ? `Transferencia interna desde ${input.container.label}`
+      : `Transferencia interna hacia ${input.container.label}`;
+  const fingerprint = [
+    'internal-transfer-counterpart',
+    input.workspaceId,
+    input.insertedTransaction.fingerprint,
+    input.counterpartyAccountId
+  ].join('|');
+  const importHash = await createImportHash({
+    accountId: input.counterpartyAccountId,
+    amount: Number(source.amount),
+    date: source.occurred_at.slice(0, 10),
+    description: counterpartyDescription,
+    workspaceId: input.workspaceId
+  });
+
+  const { data: existingCounterpart, error: existingError } = await supabase
+    .from('transactions')
+    .select('id')
+    .eq('workspace_id', input.workspaceId)
+    .eq('account_id', input.counterpartyAccountId)
+    .eq('fingerprint', fingerprint)
+    .maybeSingle<{ id: string }>();
+
+  if (existingError) {
+    throw existingError;
+  }
+
+  let counterpartId = existingCounterpart?.id ?? null;
+
+  if (!counterpartId) {
+    const { data: insertedCounterpart, error: insertError } = await supabase
+      .from('transactions')
+      .insert({
+        account_id: input.counterpartyAccountId,
+        amount: Number(source.amount),
+        booked_at: source.booked_at,
+        category_id: null,
+        confidence_score: 0.9,
+        counterparty_container_id: input.container.id,
+        currency: source.currency,
+        description: counterpartyDescription,
+        direction: counterpartyDirection,
+        fingerprint,
+        import_batch_id: input.batchId,
+        import_hash: importHash,
+        is_reviewed: true,
+        linked_transaction_id: input.insertedTransaction.id,
+        movement_type: 'transfer',
+        occurred_at: source.occurred_at,
+        raw_import_record_id: null,
+        status: 'posted',
+        transaction_type: 'investment_transfer',
+        transfer_group_id: input.plan.transferGroupId,
+        workspace_id: input.workspaceId
+      })
+      .select('id')
+      .single<{ id: string }>();
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    counterpartId = insertedCounterpart.id;
+  } else {
+    const { error: relinkError } = await supabase
+      .from('transactions')
+      .update({
+        counterparty_container_id: input.container.id,
+        linked_transaction_id: input.insertedTransaction.id,
+        transfer_group_id: input.plan.transferGroupId
+      })
+      .eq('id', counterpartId)
+      .eq('workspace_id', input.workspaceId);
+
+    if (relinkError) {
+      throw relinkError;
+    }
+  }
+
+  if (!counterpartId) {
+    throw new Error('No se pudo crear la contrapartida de la transferencia.');
+  }
+
+  const { error: updateError } = await supabase
+    .from('transactions')
+    .update({
+      counterparty_container_id: input.counterpartyContainerId,
+      linked_transaction_id: counterpartId,
+      transfer_group_id: input.plan.transferGroupId
+    })
+    .eq('id', input.insertedTransaction.id)
+    .eq('workspace_id', input.workspaceId);
+
+  if (updateError) {
+    throw updateError;
+  }
+}
+
+function resolveCounterpartyContainer(input: {
+  selectedContainer: ImportContainerOption;
+  containers: ImportContainerOption[];
+  description: string;
+}) {
+  const normalizedDescription = normalizeImportText(input.description);
+
+  return (
+    input.containers.find((container) => {
+      if (container.id === input.selectedContainer.id) {
+        return false;
+      }
+
+      const candidates = [
+        container.institution,
+        container.name,
+        container.label,
+        ...getContainerAliases(container)
+      ]
+        .filter((candidate): candidate is string => Boolean(candidate?.trim()))
+        .map(normalizeImportText);
+
+      return candidates.some(
+        (candidate) => candidate.length >= 3 && normalizedDescription.includes(candidate)
+      );
+    }) ?? null
+  );
+}
+
+function getContainerAliases(container: ImportContainerOption) {
+  const label = `${container.institution ?? ''} ${container.name}`.toLowerCase();
+
+  if (label.includes('myinvestor')) {
+    return ['my investor', 'myinvestor'];
+  }
+
+  if (label.includes('trade')) {
+    return ['trade republic', 'traderepublic'];
+  }
+
+  return [];
+}
+
+function normalizeImportText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 function mapContainerToImportOption(container: FinancialContainer) {

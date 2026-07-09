@@ -1428,7 +1428,7 @@ function AuditPanel({
           value={formatMoney(audit.patrimony.cashAccounts, audit.currency)}
         />
         <MetricCard
-          label="Plataformas inversion"
+          label="Efectivo en plataformas"
           tone="investment"
           value={formatMoney(audit.patrimony.investmentPlatforms, audit.currency)}
         />
@@ -1451,9 +1451,11 @@ function AuditPanel({
           <span>{formatMoney(audit.patrimony.currentPatrimony, audit.currency)}</span>
         </div>
         <div className="audit-formula">
-          patrimonio = efectivo/cuentas + plataformas de inversion + valor activos -
-          deudas
+          patrimonio = efectivo/cuentas + efectivo en plataformas + valor activos - deudas
         </div>
+        {audit.patrimony.warning ? (
+          <div className="audit-warning">{audit.patrimony.warning}</div>
+        ) : null}
         <div className="audit-breakdown-grid">
           <span>
             Patrimonio inicial:{' '}
@@ -1523,7 +1525,9 @@ function AuditAccountsTable({ audit }: { audit: AccountingAuditSummary }) {
               <th>Transf. entrantes</th>
               <th>Compras activos</th>
               <th>Variacion</th>
-              <th>Saldo calculado</th>
+              <th>Efectivo calculado</th>
+              <th>Activos plataforma</th>
+              <th>Total plataforma</th>
               <th>Ultimo saldo importado</th>
               <th>Diferencia</th>
             </tr>
@@ -1533,6 +1537,7 @@ function AuditAccountsTable({ audit }: { audit: AccountingAuditSummary }) {
               <tr key={account.accountId}>
                 <th>
                   <span>{account.accountName}</span>
+                  {account.containerName ? <small>{account.containerName}</small> : null}
                   <small>{account.initialBalanceSource}</small>
                 </th>
                 <td>{getAuditKindLabel(account.kind)}</td>
@@ -1544,6 +1549,16 @@ function AuditAccountsTable({ audit }: { audit: AccountingAuditSummary }) {
                 <td>{formatMoney(-account.assetPurchases, account.currency)}</td>
                 <td>{formatMoney(account.movementDelta, account.currency)}</td>
                 <td>{formatMoney(account.calculatedBalance, account.currency)}</td>
+                <td>
+                  {account.platformAssetValue > 0
+                    ? formatMoney(account.platformAssetValue, account.currency)
+                    : '-'}
+                </td>
+                <td>
+                  {account.kind === 'investment_platform'
+                    ? formatMoney(account.platformTotal, account.currency)
+                    : '-'}
+                </td>
                 <td>
                   {account.latestImportedBalance === null
                     ? 'Sin saldo'

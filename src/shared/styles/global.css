@@ -822,7 +822,7 @@ h1 {
 }
 
 .audit-summary-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
 .audit-card {
@@ -1808,6 +1808,10 @@ h1 {
 .account-row div:last-child {
   justify-items: end;
   text-align: right;
+}
+
+.account-row--stacked {
+  align-items: start;
 }
 
 .account-row strong {

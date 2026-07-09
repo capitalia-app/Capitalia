@@ -51,6 +51,8 @@ export type AuditPatrimonyBreakdown = {
   cashAccounts: number;
   investmentPlatforms: number;
   financialAssets: number;
+  realEstateAssets: number;
+  grossPatrimony: number;
   debts: number;
   currentPatrimony: number;
   warning: string | null;
@@ -406,8 +408,11 @@ function buildPatrimonyBreakdown(input: {
     .filter((row) => row.kind === 'investment_platform')
     .reduce((total, row) => total + row.calculatedBalance, 0);
   const financialAssets = input.containers.reduce(
-    (total, container) =>
-      total + sumContainerAssets(container.assets, isPatrimonialAsset),
+    (total, container) => total + sumContainerAssets(container.assets, isFinancialAsset),
+    0
+  );
+  const realEstateAssets = input.containers.reduce(
+    (total, container) => total + sumContainerAssets(container.assets, isRealEstateAsset),
     0
   );
   const debts = input.containers.reduce(
@@ -418,15 +423,20 @@ function buildPatrimonyBreakdown(input: {
     container.assets.some((asset) => asset.assetType === 'real_estate')
   );
 
+  const grossPatrimony =
+    cashAccounts + investmentPlatforms + financialAssets + realEstateAssets;
+
   return {
     cashAccounts,
-    currentPatrimony: cashAccounts + investmentPlatforms + financialAssets - debts,
+    currentPatrimony: grossPatrimony - debts,
     debts,
     financialAssets,
+    grossPatrimony,
     initialDebt: input.snapshot?.initialDebt ?? null,
     initialGrossWorth: input.snapshot?.initialGrossWorth ?? null,
     initialNetWorth: input.snapshot?.initialNetWorth ?? null,
     investmentPlatforms,
+    realEstateAssets,
     warning:
       debts > 0 && !hasRealEstateAsset
         ? 'Hay deuda registrada sin vivienda/inmueble asociado. El patrimonio puede parecer artificialmente bajo hasta registrar el activo financiado.'
@@ -742,6 +752,18 @@ function isLiabilityAsset(asset: PatrimonyAsset) {
 
 function isPatrimonialAsset(asset: PatrimonyAsset) {
   return asset.assetType !== 'cash' && asset.assetType !== 'liability';
+}
+
+function isFinancialAsset(asset: PatrimonyAsset) {
+  return (
+    asset.assetType !== 'cash' &&
+    asset.assetType !== 'liability' &&
+    asset.assetType !== 'real_estate'
+  );
+}
+
+function isRealEstateAsset(asset: PatrimonyAsset) {
+  return asset.assetType === 'real_estate';
 }
 
 function getContainerDisplayName(container: FinancialContainer | null) {

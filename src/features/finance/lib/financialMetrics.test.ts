@@ -41,7 +41,7 @@ describe('financial metrics', () => {
     expect(visibleMovementTotal).toBe(dashboardTotal);
   });
 
-  it('calculates monthly balance without counting internal transfer exits twice', () => {
+  it('calculates monthly balance without subtracting savings or investment transfers', () => {
     const transactions = [
       createTransaction('bbva', 'BBVA / Cuenta principal', 2500, 'inflow', 'income'),
       createTransaction('bbva', 'BBVA / Cuenta principal', 80, 'outflow', 'expense'),
@@ -65,7 +65,7 @@ describe('financial metrics', () => {
     expect(income).toBe(2500);
     expect(expenses).toBe(-80);
     expect(savings).toBe(3000);
-    expect(calculateMonthlyBalance({ expenses, income, savings })).toBe(-580);
+    expect(calculateMonthlyBalance({ expenses, income, savings })).toBe(2420);
   });
 
   it('counts a source-account transfer to an investment platform when the destination leg is missing', () => {
@@ -122,7 +122,7 @@ describe('financial metrics', () => {
     expect(metrics.income.slice(0, 4)).toEqual([2000, 2100, 2200, 2500]);
     expect(metrics.expenses.slice(0, 4)).toEqual([-500, -600, 0, -80]);
     expect(metrics.savings.slice(0, 4)).toEqual([0, 300, 125, 3000]);
-    expect(metrics.balance.slice(0, 4)).toEqual([1500, 1200, 2075, -580]);
+    expect(metrics.balance.slice(0, 4)).toEqual([1500, 1500, 2200, 2420]);
     expect(
       sumMetricTransactions(gastosSection, buildMetricFilter('expense', accounts))
     ).toBe(metrics.expenses.slice(0, 4).reduce((total, value) => total + value, 0));

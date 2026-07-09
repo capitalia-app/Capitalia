@@ -44,6 +44,7 @@ export type PatrimonyAsset = {
   totalCost: number | null;
   purchaseDate: string | null;
   provider: string | null;
+  linkedAssetId: string | null;
   notes: string | null;
 };
 
@@ -209,6 +210,7 @@ type AssetRecord = {
   total_cost: number | string | null;
   purchase_date: string | null;
   provider: string | null;
+  linked_asset_id: string | null;
   notes: string | null;
 };
 
@@ -276,7 +278,7 @@ export async function listFinancialContainers(workspaceId: string) {
   const { data: assets, error: assetsError } = await supabase
     .from('assets')
     .select(
-      'id, container_id, name, asset_type, type, currency, quantity, manual_value, purchase_price, average_cost, total_cost, purchase_date, provider, notes'
+      'id, container_id, name, asset_type, type, currency, quantity, manual_value, purchase_price, average_cost, total_cost, purchase_date, provider, linked_asset_id, notes'
     )
     .eq('workspace_id', workspaceId)
     .is('deleted_at', null)
@@ -1126,6 +1128,7 @@ function mapAssetRecord(asset: AssetRecord, latestValuation?: AssetValuationReco
     hasCurrentValuation: valuationValue !== null,
     id: asset.id,
     legacyType: asset.type,
+    linkedAssetId: asset.linked_asset_id,
     manualValue: assetType === 'liability' ? -Math.abs(value) : Math.abs(value),
     name: asset.name,
     notes: asset.notes,

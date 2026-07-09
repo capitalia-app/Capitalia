@@ -18,6 +18,10 @@ import {
   type AnnualTableRow
 } from '@/features/finance/lib/annualControl';
 import {
+  getAccountingAuditSummary,
+  type AccountingAuditSummary
+} from '@/features/finance/lib/audit';
+import {
   getCurrentWorkspace,
   type FinancialAccount,
   type WorkspaceSummary
@@ -86,6 +90,7 @@ type AppSection =
   | 'categories'
   | 'assets'
   | 'goals'
+  | 'audit'
   | 'snapshot'
   | 'settings';
 
@@ -150,6 +155,11 @@ const utilityNavigationItems = [
     detail: 'Reglas automaticas'
   },
   {
+    section: 'audit',
+    label: 'Auditoria',
+    detail: 'Conciliacion contable'
+  },
+  {
     section: 'assets',
     label: 'Activos',
     detail: 'Detalle patrimonial'
@@ -200,6 +210,7 @@ export function AuthenticatedDashboard({
     if (
       section === 'dashboard' ||
       section === 'movements' ||
+      section === 'audit' ||
       section === 'categories' ||
       section === 'settings'
     ) {
@@ -320,6 +331,12 @@ export function AuthenticatedDashboard({
 
   if (activeSection === 'categories') {
     sectionContent = <CategoriesPanel summary={summary} />;
+  }
+
+  if (activeSection === 'audit') {
+    sectionContent = (
+      <AuditPanel selectedYear={selectedYear} onYearChange={setSelectedYear} />
+    );
   }
 
   if (activeSection === 'snapshot') {
@@ -1321,6 +1338,340 @@ function SavingsPanel({
       </section>
     </section>
   );
+}
+
+function AuditPanel({
+  selectedYear,
+  onYearChange
+}: {
+  selectedYear: number;
+  onYearChange: (year: number) => void;
+}) {
+  const [audit, setAudit] = useState<AccountingAuditSummary | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadAudit() {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const nextAudit = await getAccountingAuditSummary(selectedYear);
+
+        if (isMounted) {
+          setAudit(nextAudit);
+        }
+      } catch (auditError) {
+        if (isMounted) {
+          setError(getErrorMessage(auditError));
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadAudit();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedYear]);
+
+  if (isLoading) {
+    return <p className="panel-status">Calculando auditoria contable...</p>;
+  }
+
+  if (error) {
+    return (
+      <section className="empty-state-card">
+        <span>No se pudo calcular la auditoria.</span>
+        <p>{error}</p>
+      </section>
+    );
+  }
+
+  if (!audit) {
+    return null;
+  }
+
+  const availableYears = [selectedYear - 1, selectedYear, selectedYear + 1];
+
+  return (
+    <section className="annual-section" aria-label="Auditoria contable">
+      <div className="section-heading">
+        <p className="eyebrow">Auditoria</p>
+        <h2>Conciliacion contable</h2>
+        <label className="year-selector">
+          <span>Año</span>
+          <select
+            onChange={(event) => onYearChange(Number(event.target.value))}
+            value={selectedYear}
+          >
+            {availableYears.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="summary-grid audit-summary-grid">
+        <MetricCard
+          label="Efectivo / cuentas"
+          tone="neutral"
+          value={formatMoney(audit.patrimony.cashAccounts, audit.currency)}
+        />
+        <MetricCard
+          label="Plataformas inversion"
+          tone="investment"
+          value={formatMoney(audit.patrimony.investmentPlatforms, audit.currency)}
+        />
+        <MetricCard
+          label="Valor activos"
+          tone="income"
+          value={formatMoney(audit.patrimony.financialAssets, audit.currency)}
+        />
+        <MetricCard
+          label="Deudas"
+          tone="expense"
+          value={formatMoney(audit.patrimony.debts, audit.currency)}
+        />
+      </div>
+
+      <section className="annual-table-card audit-card">
+        <div className="section-heading annual-table-heading">
+          <p className="eyebrow">Patrimonio</p>
+          <h2>Desglose actual</h2>
+          <span>{formatMoney(audit.patrimony.currentPatrimony, audit.currency)}</span>
+        </div>
+        <div className="audit-formula">
+          patrimonio = efectivo/cuentas + plataformas de inversion + valor activos -
+          deudas
+        </div>
+        <div className="audit-breakdown-grid">
+          <span>
+            Patrimonio inicial:{' '}
+            <strong>
+              {audit.patrimony.initialNetWorth === null
+                ? 'No informado'
+                : formatMoney(audit.patrimony.initialNetWorth, audit.currency)}
+            </strong>
+          </span>
+          <span>
+            Patrimonio bruto inicial:{' '}
+            <strong>
+              {audit.patrimony.initialGrossWorth === null
+                ? 'No informado'
+                : formatMoney(audit.patrimony.initialGrossWorth, audit.currency)}
+            </strong>
+          </span>
+          <span>
+            Deuda inicial:{' '}
+            <strong>
+              {audit.patrimony.initialDebt === null
+                ? 'No informada'
+                : formatMoney(audit.patrimony.initialDebt, audit.currency)}
+            </strong>
+          </span>
+        </div>
+      </section>
+
+      <AuditAccountsTable audit={audit} />
+      <AuditContainersSection audit={audit} />
+      <AuditSuspiciousTable audit={audit} />
+
+      <section className="annual-table-card audit-card">
+        <div className="section-heading annual-table-heading">
+          <p className="eyebrow">Logs visibles</p>
+          <h2>Como se ha calculado</h2>
+          <span>{audit.logs.length} notas</span>
+        </div>
+        <ul className="audit-log-list">
+          {audit.logs.map((log) => (
+            <li key={log}>{log}</li>
+          ))}
+        </ul>
+      </section>
+    </section>
+  );
+}
+
+function AuditAccountsTable({ audit }: { audit: AccountingAuditSummary }) {
+  return (
+    <section className="annual-table-card audit-card">
+      <div className="section-heading annual-table-heading">
+        <p className="eyebrow">Conciliacion</p>
+        <h2>Saldos por cuenta</h2>
+        <span>{audit.accounts.length} cuentas</span>
+      </div>
+      <div className="annual-table-scroll">
+        <table className="annual-table audit-table">
+          <thead>
+            <tr>
+              <th>Cuenta</th>
+              <th>Tipo</th>
+              <th>Saldo inicial</th>
+              <th>Ingresos</th>
+              <th>Gastos</th>
+              <th>Transf. salientes</th>
+              <th>Transf. entrantes</th>
+              <th>Compras activos</th>
+              <th>Variacion</th>
+              <th>Saldo calculado</th>
+              <th>Ultimo saldo importado</th>
+              <th>Diferencia</th>
+            </tr>
+          </thead>
+          <tbody>
+            {audit.accounts.map((account) => (
+              <tr key={account.accountId}>
+                <th>
+                  <span>{account.accountName}</span>
+                  <small>{account.initialBalanceSource}</small>
+                </th>
+                <td>{getAuditKindLabel(account.kind)}</td>
+                <td>{formatMoney(account.initialBalance, account.currency)}</td>
+                <td>{formatMoney(account.income, account.currency)}</td>
+                <td>{formatMoney(-account.expenses, account.currency)}</td>
+                <td>{formatMoney(-account.outgoingTransfers, account.currency)}</td>
+                <td>{formatMoney(account.incomingTransfers, account.currency)}</td>
+                <td>{formatMoney(-account.assetPurchases, account.currency)}</td>
+                <td>{formatMoney(account.movementDelta, account.currency)}</td>
+                <td>{formatMoney(account.calculatedBalance, account.currency)}</td>
+                <td>
+                  {account.latestImportedBalance === null
+                    ? 'Sin saldo'
+                    : `${formatMoney(
+                        account.latestImportedBalance,
+                        account.currency
+                      )} (${formatDate(account.latestImportedBalanceDate ?? '')})`}
+                </td>
+                <td>
+                  {account.difference === null
+                    ? 'No comparable'
+                    : formatMoney(account.difference, account.currency)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="audit-formula">
+        saldo final = saldo inicial + ingresos - gastos - transferencias salientes +
+        transferencias entrantes - compras de activos si salen del efectivo de esa misma
+        cuenta.
+      </p>
+    </section>
+  );
+}
+
+function AuditContainersSection({ audit }: { audit: AccountingAuditSummary }) {
+  return (
+    <section className="annual-table-card audit-card">
+      <div className="section-heading annual-table-heading">
+        <p className="eyebrow">Patrimonio</p>
+        <h2>Cuentas, activos y deudas</h2>
+        <span>{audit.containers.length} contenedores</span>
+      </div>
+      <div className="audit-container-grid">
+        {audit.containers.map((container) => (
+          <article className="audit-container-card" key={container.id}>
+            <div>
+              <strong>{getContainerDisplayName(container)}</strong>
+              <span>{container.containerType}</span>
+            </div>
+            <strong>{formatMoney(container.totalValue, container.currency)}</strong>
+            {container.assets.length > 0 ? (
+              <ul>
+                {container.assets.map((asset) => (
+                  <li key={asset.id}>
+                    <span>
+                      {asset.name} · {asset.assetType}
+                    </span>
+                    <strong>{formatMoney(asset.manualValue, asset.currency)}</strong>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>Sin activos vinculados.</p>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AuditSuspiciousTable({ audit }: { audit: AccountingAuditSummary }) {
+  return (
+    <section className="annual-table-card audit-card">
+      <div className="section-heading annual-table-heading">
+        <p className="eyebrow">Revision</p>
+        <h2>Movimientos sospechosos</h2>
+        <span>{audit.suspiciousMovements.length} hallazgos</span>
+      </div>
+      {audit.suspiciousMovements.length > 0 ? (
+        <div className="annual-table-scroll">
+          <table className="annual-table audit-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Cuenta</th>
+                <th>Descripcion</th>
+                <th>Importe</th>
+                <th>Motivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {audit.suspiciousMovements.map((movement) => (
+                <tr key={movement.id}>
+                  <td>{formatDate(movement.date)}</td>
+                  <td>{movement.accountName}</td>
+                  <td>{movement.description}</td>
+                  <td>
+                    {formatMoney(
+                      movement.direction === 'inflow'
+                        ? movement.amount
+                        : -movement.amount,
+                      audit.currency
+                    )}
+                  </td>
+                  <td>{movement.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="empty-state-card">
+          <span>Sin movimientos sospechosos</span>
+          <p>No se han detectado incoherencias basicas para este año.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function getAuditKindLabel(kind: AccountingAuditSummary['accounts'][number]['kind']) {
+  if (kind === 'cash') {
+    return 'Efectivo / banco';
+  }
+
+  if (kind === 'investment_platform') {
+    return 'Plataforma inversion';
+  }
+
+  if (kind === 'debt') {
+    return 'Deuda';
+  }
+
+  return 'Otro';
 }
 
 type MovementsPanelProps = {

@@ -4,10 +4,10 @@ import {
   type FinancialAccountType,
   type WorkspaceSummary
 } from '@/features/finance/lib/accounts';
+import { getAccountingAuditSummary } from '@/features/finance/lib/audit';
 import type { MovementType } from '@/features/finance/lib/import/types';
 import {
   getLatestPatrimonialSnapshot,
-  listFinancialContainers,
   type FinancialContainer,
   type PatrimonialSnapshot
 } from '@/features/finance/lib/snapshots';
@@ -77,13 +77,6 @@ type AccountRecord = {
   type: FinancialAccountType;
 };
 
-type BalanceRecord = {
-  account_id: string;
-  balance: number | string;
-  captured_at: string;
-  source: string;
-};
-
 type TransactionRecord = {
   id: string;
   account_id: string;
@@ -99,13 +92,6 @@ type TransactionRecord = {
   transfer_group_id: string | null;
   linked_transaction_id: string | null;
   counterparty_container_id: string | null;
-};
-
-type BalanceTransactionRecord = {
-  account_id: string;
-  amount: number | string;
-  direction: 'inflow' | 'outflow';
-  occurred_at: string;
 };
 
 type MonthlyTransactionRecord = {
@@ -145,25 +131,19 @@ export async function getDashboardSummary() {
     throw accountsError;
   }
 
-  const balances = await getLatestBalances(
-    workspace.id,
-    accounts.map((account) => account.id)
-  );
-  const [snapshot, containers] = await Promise.all([
-    getLatestPatrimonialSnapshot(workspace.id),
-    listFinancialContainers(workspace.id)
-  ]);
   const now = new Date();
+  const [snapshot, accountingSummary] = await Promise.all([
+    getLatestPatrimonialSnapshot(workspace.id),
+    getAccountingAuditSummary(now.getUTCFullYear())
+  ]);
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const [monthTransactions, startTransactions, recentTransactions, balanceTransactions] =
-    await Promise.all([
-      getTransactionsFrom(workspace.id, monthStart),
-      snapshot
-        ? getTransactionsFrom(workspace.id, snapshot.snapshotDate)
-        : Promise.resolve([]),
-      getRecentTransactions(workspace.id),
-      getBalanceTransactions(workspace.id, accounts, balances)
-    ]);
+  const [monthTransactions, startTransactions, recentTransactions] = await Promise.all([
+    getTransactionsFrom(workspace.id, monthStart),
+    snapshot
+      ? getTransactionsFrom(workspace.id, snapshot.snapshotDate)
+      : Promise.resolve([]),
+    getRecentTransactions(workspace.id)
+  ]);
   const categoryIds = recentTransactions
     .map((transaction) => transaction.category_id)
     .filter((categoryId): categoryId is string => Boolean(categoryId));
@@ -208,28 +188,16 @@ export async function getDashboardSummary() {
     buildMetricFilter('savings', metricAccounts)
   );
   const transfersSinceStart = investedSinceStart;
-  const accountBalances = accounts.map((account) => {
-    const balance = balances.get(account.id);
-
-    return {
-      id: account.id,
-      name: account.name,
-      currency: account.currency,
-      balance: getBalanceWithTransactions(balance, balanceTransactions, account.id)
-    } satisfies DashboardAccount;
-  });
-
-  const accountNetWorth = accountBalances.reduce(
-    (total, account) => total + account.balance,
-    0
-  );
-  const containerNetWorth = containers.reduce(
-    (total, container) => total + container.totalValue,
-    0
-  );
-  const estimatedNetWorth = snapshot
-    ? snapshot.initialNetWorth + incomeSinceStart - expensesSinceStart
-    : containerNetWorth || accountNetWorth;
+  const accountBalances = accountingSummary.accounts.map((account) => ({
+    id: account.accountId,
+    name: account.containerName ?? account.accountName,
+    currency: account.currency,
+    balance:
+      account.kind === 'investment_platform'
+        ? account.platformTotal
+        : account.calculatedBalance
+  }));
+  const estimatedNetWorth = accountingSummary.patrimony.currentPatrimony;
 
   return {
     workspace,
@@ -250,7 +218,7 @@ export async function getDashboardSummary() {
     investedSinceStart,
     transfersSinceStart,
     estimatedNetWorth,
-    containers,
+    containers: accountingSummary.containers,
     accounts: accountBalances,
     recentTransactions: recentTransactions.map((transaction) => ({
       accountId: transaction.account_id,
@@ -279,36 +247,6 @@ export async function getDashboardSummary() {
       counterpartyContainerId: transaction.counterparty_container_id
     }))
   } satisfies DashboardSummary;
-}
-
-async function getLatestBalances(workspaceId: string, accountIds: string[]) {
-  if (!supabase || accountIds.length === 0) {
-    return new Map<string, BalanceRecord>();
-  }
-
-  const { data, error } = await supabase
-    .from('account_balances')
-    .select('account_id, balance, captured_at, source')
-    .eq('workspace_id', workspaceId)
-    .in('account_id', accountIds)
-    .order('captured_at', { ascending: false })
-    .returns<BalanceRecord[]>();
-
-  if (error) {
-    throw error;
-  }
-
-  const balances = new Map<string, BalanceRecord>();
-
-  data
-    .filter((balance) => balance.source !== 'system')
-    .forEach((balance) => {
-      if (!balances.has(balance.account_id)) {
-        balances.set(balance.account_id, balance);
-      }
-    });
-
-  return balances;
 }
 
 async function getTransactionsFrom(workspaceId: string, fromDate: Date | string) {
@@ -394,68 +332,6 @@ async function getCategoriesById(categoryIds: string[]) {
   }
 
   return new Map(data.map((category) => [category.id, category]));
-}
-
-async function getBalanceTransactions(
-  workspaceId: string,
-  accounts: AccountRecord[],
-  balances: Map<string, BalanceRecord>
-) {
-  if (!supabase || accounts.length === 0) {
-    return [];
-  }
-
-  const query = supabase
-    .from('transactions')
-    .select('account_id, amount, direction, occurred_at')
-    .eq('workspace_id', workspaceId)
-    .eq('status', 'posted')
-    .in(
-      'account_id',
-      accounts.map((account) => account.id)
-    );
-
-  if (balances.size > 0) {
-    const oldestBalanceDate = [...balances.values()].reduce((oldest, balance) => {
-      const capturedAt = new Date(balance.captured_at);
-
-      return capturedAt < oldest ? capturedAt : oldest;
-    }, new Date());
-
-    query.gt('occurred_at', oldestBalanceDate.toISOString());
-  }
-
-  const { data, error } = await query.returns<BalanceTransactionRecord[]>();
-
-  if (error) {
-    throw error;
-  }
-
-  return data;
-}
-
-function getBalanceWithTransactions(
-  balance: BalanceRecord | undefined,
-  transactions: BalanceTransactionRecord[],
-  accountId: string
-) {
-  const capturedAt = balance ? new Date(balance.captured_at) : null;
-  const delta = transactions
-    .filter(
-      (transaction) =>
-        transaction.account_id === accountId &&
-        (!capturedAt || new Date(transaction.occurred_at) > capturedAt)
-    )
-    .reduce(
-      (total, transaction) =>
-        total +
-        (transaction.direction === 'inflow'
-          ? Number(transaction.amount)
-          : -Number(transaction.amount)),
-      0
-    );
-
-  return Number(balance?.balance ?? 0) + delta;
 }
 
 function fallbackMovementType(direction: MonthlyTransactionRecord['direction']) {

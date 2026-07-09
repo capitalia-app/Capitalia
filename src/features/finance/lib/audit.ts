@@ -3,7 +3,8 @@ import {
   getLatestPatrimonialSnapshot,
   listFinancialContainers,
   type FinancialContainer,
-  type PatrimonialSnapshot
+  type PatrimonialSnapshot,
+  type PatrimonyAsset
 } from '@/features/finance/lib/snapshots';
 import { supabase } from '@/shared/lib/supabase';
 
@@ -13,6 +14,8 @@ export type AuditAccountRow = {
   accountId: string;
   accountName: string;
   accountType: string;
+  containerId: string | null;
+  containerName: string | null;
   kind: AuditAccountKind;
   currency: string;
   initialBalance: number;
@@ -24,6 +27,9 @@ export type AuditAccountRow = {
   assetPurchases: number;
   movementDelta: number;
   calculatedBalance: number;
+  platformAssetValue: number;
+  platformDebtValue: number;
+  platformTotal: number;
   latestImportedBalance: number | null;
   latestImportedBalanceDate: string | null;
   difference: number | null;
@@ -46,6 +52,7 @@ export type AuditPatrimonyBreakdown = {
   financialAssets: number;
   debts: number;
   currentPatrimony: number;
+  warning: string | null;
   initialNetWorth: number | null;
   initialGrossWorth: number | null;
   initialDebt: number | null;
@@ -107,6 +114,7 @@ export async function getAccountingAuditSummary(year: number) {
   const accountsById = new Map(accounts.map((account) => [account.id, account]));
   const balancesByAccount = groupBalancesByAccount(balances);
   const transactionsByAccount = groupTransactionsByAccount(transactions);
+  const containerByAccountId = matchContainersToAccounts(accounts, containers);
   const linkedTransactionsById = new Map(
     transactions.map((transaction) => [transaction.id, transaction])
   );
@@ -114,6 +122,7 @@ export async function getAccountingAuditSummary(year: number) {
     buildAuditAccountRow({
       account,
       balances: balancesByAccount.get(account.id) ?? [],
+      container: containerByAccountId.get(account.id) ?? null,
       snapshot,
       transactions: transactionsByAccount.get(account.id) ?? [],
       yearStart
@@ -132,6 +141,7 @@ export async function getAccountingAuditSummary(year: number) {
       `Movimientos del año: ${transactions.length}`,
       `Balances historicos leidos: ${balances.length}`,
       `Snapshot patrimonial: ${snapshot ? snapshot.snapshotDate : 'no existe'}`,
+      `Contenedores patrimoniales leidos: ${containers.length}`,
       'Los saldos system=0 se muestran, pero no se usan como saldo inicial contable.'
     ],
     patrimony,
@@ -209,6 +219,7 @@ async function getYearTransactions(workspaceId: string, yearStart: Date, yearEnd
 function buildAuditAccountRow(input: {
   account: AccountRecord;
   balances: BalanceRecord[];
+  container: FinancialContainer | null;
   snapshot: PatrimonialSnapshot | null;
   transactions: TransactionRecord[];
   yearStart: Date;
@@ -216,6 +227,7 @@ function buildAuditAccountRow(input: {
   const initialBalance = getInitialBalance({
     accountId: input.account.id,
     balances: input.balances,
+    container: input.container,
     snapshot: input.snapshot,
     yearStart: input.yearStart
   });
@@ -231,6 +243,13 @@ function buildAuditAccountRow(input: {
   const difference = latestImportedBalance
     ? calculatedBalance - latestImportedBalance.amount
     : null;
+  const platformAssetValue = input.container
+    ? sumContainerAssets(input.container.assets, isPatrimonialAsset)
+    : 0;
+  const platformDebtValue = input.container
+    ? sumContainerAssets(input.container.assets, isLiabilityAsset)
+    : 0;
+  const platformTotal = calculatedBalance + platformAssetValue;
 
   return {
     accountId: input.account.id,
@@ -238,6 +257,8 @@ function buildAuditAccountRow(input: {
     accountType: input.account.type,
     assetPurchases,
     calculatedBalance,
+    containerId: input.container?.id ?? null,
+    containerName: input.container ? getContainerDisplayName(input.container) : null,
     currency: input.account.currency,
     difference,
     expenses,
@@ -251,13 +272,17 @@ function buildAuditAccountRow(input: {
     latestImportedBalance: latestImportedBalance?.amount ?? null,
     latestImportedBalanceDate: latestImportedBalance?.capturedAt ?? null,
     movementDelta,
-    outgoingTransfers
+    outgoingTransfers,
+    platformAssetValue,
+    platformDebtValue,
+    platformTotal
   } satisfies AuditAccountRow;
 }
 
 function getInitialBalance(input: {
   accountId: string;
   balances: BalanceRecord[];
+  container: FinancialContainer | null;
   snapshot: PatrimonialSnapshot | null;
   yearStart: Date;
 }) {
@@ -286,6 +311,24 @@ function getInitialBalance(input: {
     return {
       amount: snapshotItem.value,
       source: `snapshot ${input.snapshot?.snapshotDate ?? ''}`.trim()
+    };
+  }
+
+  const snapshotContainerCash = getSnapshotContainerCash(input.snapshot, input.container);
+
+  if (snapshotContainerCash !== null) {
+    return {
+      amount: snapshotContainerCash,
+      source: `snapshot contenedor ${input.snapshot?.snapshotDate ?? ''}`.trim()
+    };
+  }
+
+  const containerCash = getContainerInitialCash(input.container);
+
+  if (containerCash !== null) {
+    return {
+      amount: containerCash,
+      source: `cash actual ${getContainerDisplayName(input.container)}`
     };
   }
 
@@ -324,19 +367,15 @@ function buildPatrimonyBreakdown(input: {
     .reduce((total, row) => total + row.calculatedBalance, 0);
   const financialAssets = input.containers.reduce(
     (total, container) =>
-      total +
-      container.assets
-        .filter((asset) => asset.assetType !== 'cash' && asset.assetType !== 'liability')
-        .reduce((assetTotal, asset) => assetTotal + asset.manualValue, 0),
+      total + sumContainerAssets(container.assets, isPatrimonialAsset),
     0
   );
   const debts = input.containers.reduce(
-    (total, container) =>
-      total +
-      container.assets
-        .filter((asset) => asset.assetType === 'liability')
-        .reduce((assetTotal, asset) => assetTotal + Math.abs(asset.manualValue), 0),
+    (total, container) => total + sumContainerAssets(container.assets, isLiabilityAsset),
     0
+  );
+  const hasRealEstateAsset = input.containers.some((container) =>
+    container.assets.some((asset) => asset.assetType === 'real_estate')
   );
 
   return {
@@ -347,7 +386,11 @@ function buildPatrimonyBreakdown(input: {
     initialDebt: input.snapshot?.initialDebt ?? null,
     initialGrossWorth: input.snapshot?.initialGrossWorth ?? null,
     initialNetWorth: input.snapshot?.initialNetWorth ?? null,
-    investmentPlatforms
+    investmentPlatforms,
+    warning:
+      debts > 0 && !hasRealEstateAsset
+        ? 'Hay deuda registrada sin vivienda/inmueble asociado. El patrimonio puede parecer artificialmente bajo hasta registrar el activo financiado.'
+        : null
   } satisfies AuditPatrimonyBreakdown;
 }
 
@@ -374,7 +417,8 @@ function findSuspiciousMovements(input: {
 
     if (
       transaction.movement_type === 'investment' &&
-      !isInvestmentAccount(input.accountsById.get(transaction.account_id))
+      !isInvestmentAccount(input.accountsById.get(transaction.account_id)) &&
+      isPotentialInvestmentTransaction(transaction)
     ) {
       suspicious.push(
         mapSuspicious(transaction, accountName, 'Inversion sin plataforma destino clara')
@@ -471,6 +515,32 @@ function isAssetPurchase(transaction: TransactionRecord) {
   );
 }
 
+function isPotentialInvestmentTransaction(transaction: TransactionRecord) {
+  const text = normalizeText(
+    `${transaction.description} ${transaction.transaction_type ?? ''}`
+  );
+
+  return [
+    'fondo',
+    'fondos',
+    'etf',
+    'cripto',
+    'bitcoin',
+    'btc',
+    'ethereum',
+    'eth',
+    'myinvestor',
+    'broker',
+    'vanguard',
+    'fidelity',
+    'amundi',
+    'ishares',
+    'binance',
+    'coinbase',
+    'ledger'
+  ].some((keyword) => text.includes(keyword));
+}
+
 function getAccountKind(account: AccountRecord): AuditAccountKind {
   if (account.type === 'brokerage' || account.type === 'crypto_wallet') {
     return 'investment_platform';
@@ -485,6 +555,128 @@ function getAccountKind(account: AccountRecord): AuditAccountKind {
 
 function isInvestmentAccount(account: AccountRecord | undefined) {
   return account ? getAccountKind(account) === 'investment_platform' : false;
+}
+
+function matchContainersToAccounts(
+  accounts: AccountRecord[],
+  containers: FinancialContainer[]
+) {
+  const unmatchedContainers = [...containers];
+  const result = new Map<string, FinancialContainer>();
+
+  accounts.forEach((account) => {
+    const matchIndex = unmatchedContainers.findIndex((container) =>
+      isLikelySameAccountAndContainer(account, container)
+    );
+
+    if (matchIndex >= 0) {
+      const [container] = unmatchedContainers.splice(matchIndex, 1);
+
+      if (container) {
+        result.set(account.id, container);
+      }
+    }
+  });
+
+  return result;
+}
+
+function isLikelySameAccountAndContainer(
+  account: AccountRecord,
+  container: FinancialContainer
+) {
+  const accountText = normalizeText(`${account.name} ${account.type}`);
+  const containerText = normalizeText(
+    `${container.name} ${container.institution ?? ''} ${container.containerType}`
+  );
+  const accountTokens = getMeaningfulTokens(accountText);
+  const containerTokens = getMeaningfulTokens(containerText);
+  const sharesToken = accountTokens.some((token) => containerTokens.includes(token));
+
+  if (!sharesToken) {
+    return false;
+  }
+
+  if (getAccountKind(account) === 'investment_platform') {
+    return ['broker', 'wallet', 'exchange'].includes(container.containerType);
+  }
+
+  if (getAccountKind(account) === 'cash') {
+    return ['bank', 'cash'].includes(container.containerType);
+  }
+
+  return true;
+}
+
+function getMeaningfulTokens(value: string) {
+  return value
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 3 && !['cuenta', 'principal'].includes(token));
+}
+
+function getContainerInitialCash(container: FinancialContainer | null) {
+  if (!container) {
+    return null;
+  }
+
+  const cash = sumContainerAssets(container.assets, isCashAsset);
+
+  return cash > 0 ? cash : null;
+}
+
+function getSnapshotContainerCash(
+  snapshot: PatrimonialSnapshot | null,
+  container: FinancialContainer | null
+) {
+  if (!snapshot || !container) {
+    return null;
+  }
+
+  const cash = snapshot.items
+    .filter(
+      (item) =>
+        item.linkedContainerId === container.id &&
+        ['bank_account', 'broker', 'cash'].includes(item.type)
+    )
+    .reduce((total, item) => total + item.value, 0);
+
+  return cash > 0 ? cash : null;
+}
+
+function sumContainerAssets(
+  assets: PatrimonyAsset[],
+  predicate: (asset: PatrimonyAsset) => boolean
+) {
+  return assets
+    .filter(predicate)
+    .reduce((total, asset) => total + Math.abs(asset.manualValue), 0);
+}
+
+function isCashAsset(asset: PatrimonyAsset) {
+  return asset.assetType === 'cash';
+}
+
+function isLiabilityAsset(asset: PatrimonyAsset) {
+  return asset.assetType === 'liability';
+}
+
+function isPatrimonialAsset(asset: PatrimonyAsset) {
+  return asset.assetType !== 'cash' && asset.assetType !== 'liability';
+}
+
+function getContainerDisplayName(container: FinancialContainer | null) {
+  if (!container) {
+    return 'contenedor';
+  }
+
+  return [container.institution, container.name].filter(Boolean).join(' / ');
+}
+
+function normalizeText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 }
 
 function groupBalancesByAccount(balances: BalanceRecord[]) {

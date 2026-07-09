@@ -848,6 +848,15 @@ h1 {
   font-size: 0.82rem;
 }
 
+.audit-warning {
+  border: 1px solid rgba(225, 184, 91, 0.28);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--gold-soft);
+  background: rgba(225, 184, 91, 0.1);
+  font-size: 0.82rem;
+}
+
 .audit-breakdown-grid,
 .audit-container-grid {
   display: grid;

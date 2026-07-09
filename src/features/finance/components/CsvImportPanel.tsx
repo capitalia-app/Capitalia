@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 
 import { ActionButton } from '@/features/onboarding/components/ActionButton';
 import {
+  analyzeImportPreview,
   getCsvImportContext,
   parseImportFile,
   saveCsvImport,
   type CsvImportContext,
   type IgnoredImportRow,
+  type ImportPreviewAnalysis,
   type ParsedCsvTransaction
 } from '@/features/finance/lib/csvImport';
 
@@ -20,6 +22,9 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
   const [selectedFileName, setSelectedFileName] = useState('');
   const [detectedFormat, setDetectedFormat] = useState('');
   const [previewRows, setPreviewRows] = useState<ParsedCsvTransaction[]>([]);
+  const [previewAnalysis, setPreviewAnalysis] = useState<ImportPreviewAnalysis | null>(
+    null
+  );
   const [ignoredRows, setIgnoredRows] = useState<IgnoredImportRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isParsing, setIsParsing] = useState(false);
@@ -61,6 +66,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
     setSuccess(null);
     setDetectedFormat('');
     setPreviewRows([]);
+    setPreviewAnalysis(null);
     setIgnoredRows([]);
 
     if (!file) {
@@ -79,13 +85,22 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
 
     try {
       const parsedImport = await parseImportFile(file, selectedContainer.currency);
+      const analyzedImport = context
+        ? await analyzeImportPreview({
+            container: selectedContainer,
+            transactions: parsedImport.transactions,
+            workspaceId: context.workspace.id
+          })
+        : null;
 
       setDetectedFormat(parsedImport.sourceFormat);
       setPreviewRows(parsedImport.transactions);
+      setPreviewAnalysis(analyzedImport);
       setIgnoredRows(parsedImport.ignoredRows);
     } catch (parseError) {
       setSelectedFileName('');
       setDetectedFormat('');
+      setPreviewAnalysis(null);
       setIgnoredRows([]);
       setError(getErrorMessage(parseError));
     } finally {
@@ -102,8 +117,10 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
       return;
     }
 
-    if (previewRows.length === 0) {
-      setError('Carga un CSV reconocido antes de guardar.');
+    const newPreviewRows = getNewPreviewRows(previewAnalysis, previewRows);
+
+    if (newPreviewRows.length === 0) {
+      setError('No hay movimientos nuevos para guardar en esta importacion.');
       return;
     }
 
@@ -114,14 +131,15 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
         container: selectedContainer,
         fileName: selectedFileName,
         ignoredRows,
-        transactions: previewRows,
+        transactions: newPreviewRows,
         workspaceId: context.workspace.id
       });
 
       setSuccess(
-        `Importacion completada: ${result.importedCount} movimientos importados, ${result.duplicateCount} duplicados omitidos, ${result.pendingReviewCount} pendientes de revisar y ${result.ignoredCount} movimientos ignorados.`
+        `Importacion completada: ${result.importedCount} movimientos importados, ${result.duplicateCount} duplicados omitidos, ${result.suspiciousCount} dudosos sin insertar, ${result.pendingReviewCount} pendientes de revisar y ${result.ignoredCount} movimientos ignorados.`
       );
       setPreviewRows([]);
+      setPreviewAnalysis(null);
       setSelectedFileName('');
     } catch (saveError) {
       setError(getErrorMessage(saveError));
@@ -131,17 +149,27 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
   }
 
   function markAsInternalTransfer(transactionId: string) {
-    setPreviewRows((currentRows) =>
-      currentRows.map((row) =>
-        row.id === transactionId
-          ? {
-              ...row,
-              movementType: 'transfer',
-              transactionType: 'transfer',
-              type: 'transfer'
-            }
-          : row
-      )
+    const mapAsTransfer = (row: ParsedCsvTransaction): ParsedCsvTransaction =>
+      row.id === transactionId
+        ? {
+            ...row,
+            movementType: 'transfer',
+            transactionType: 'transfer',
+            type: 'transfer'
+          }
+        : row;
+
+    setPreviewRows((currentRows) => currentRows.map(mapAsTransfer));
+    setPreviewAnalysis((currentAnalysis) =>
+      currentAnalysis
+        ? {
+            ...currentAnalysis,
+            items: currentAnalysis.items.map((item) => ({
+              ...item,
+              transaction: mapAsTransfer(item.transaction)
+            }))
+          }
+        : currentAnalysis
     );
   }
 
@@ -184,6 +212,7 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
               onChange={(event) => {
                 setSelectedContainerId(event.target.value);
                 setPreviewRows([]);
+                setPreviewAnalysis(null);
                 setIgnoredRows([]);
                 setSelectedFileName('');
                 setDetectedFormat('');
@@ -229,39 +258,84 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
             </strong>
           </div>
 
+          {previewAnalysis ? (
+            <div className="csv-preview-breakdown">
+              <span>{previewAnalysis.newCount} nuevos</span>
+              <span>{previewAnalysis.duplicateCount} duplicados</span>
+              <span>{previewAnalysis.suspiciousCount} dudosos</span>
+            </div>
+          ) : null}
+
           <div className="csv-preview-list" aria-label="Vista previa CSV">
-            {previewRows.slice(0, 8).map((row) => (
-              <article className="csv-preview-row" key={row.id}>
-                <div>
-                  <strong>{row.description}</strong>
-                  <span>
-                    {formatDate(row.date)} · {getTypeLabel(row.transactionType)}
-                  </span>
-                  {row.transactionType === 'transfer' ? (
-                    <small>Transferencia interna</small>
-                  ) : (
-                    <button
-                      className="text-link csv-preview-action"
-                      onClick={() => markAsInternalTransfer(row.id)}
-                      type="button"
-                    >
-                      Transferencia interna
-                    </button>
-                  )}
-                </div>
-                <strong className={row.direction === 'inflow' ? 'is-positive' : ''}>
-                  {formatMoney(row.amount, row.currency)}
-                </strong>
-              </article>
-            ))}
+            {getNewPreviewRows(previewAnalysis, previewRows)
+              .slice(0, 8)
+              .map((row) => (
+                <article className="csv-preview-row" key={row.id}>
+                  <div>
+                    <strong>{row.description}</strong>
+                    <span>
+                      {formatDate(row.date)} · {getTypeLabel(row.transactionType)}
+                    </span>
+                    {row.transactionType === 'transfer' ? (
+                      <small>Transferencia interna</small>
+                    ) : (
+                      <button
+                        className="text-link csv-preview-action"
+                        onClick={() => markAsInternalTransfer(row.id)}
+                        type="button"
+                      >
+                        Transferencia interna
+                      </button>
+                    )}
+                  </div>
+                  <strong className={row.direction === 'inflow' ? 'is-positive' : ''}>
+                    {formatMoney(row.amount, row.currency)}
+                  </strong>
+                </article>
+              ))}
           </div>
 
+          {previewAnalysis &&
+          previewAnalysis.items.some((item) => item.status !== 'new') ? (
+            <div className="csv-duplicates-list" aria-label="Duplicados detectados">
+              <div className="csv-preview-summary">
+                <span>Duplicados y dudosos detectados</span>
+                <strong>
+                  {previewAnalysis.duplicateCount + previewAnalysis.suspiciousCount}
+                </strong>
+              </div>
+              {previewAnalysis.items
+                .filter((item) => item.status !== 'new')
+                .slice(0, 10)
+                .map((item) => (
+                  <article className="csv-ignored-row" key={item.transaction.id}>
+                    <strong>
+                      {item.status === 'duplicate' ? 'Duplicado' : 'Dudoso'} -{' '}
+                      {item.transaction.description}
+                    </strong>
+                    <span>
+                      {formatDate(item.transaction.date)} -{' '}
+                      {formatMoney(item.transaction.amount, item.transaction.currency)}
+                    </span>
+                    <span>
+                      {item.reason}
+                      {item.matchedTransaction
+                        ? ` · existente ${formatDate(item.matchedTransaction.date)}`
+                        : ''}
+                    </span>
+                  </article>
+                ))}
+            </div>
+          ) : null}
+
           <ActionButton
-            disabled={isSaving}
+            disabled={
+              isSaving || getNewPreviewRows(previewAnalysis, previewRows).length === 0
+            }
             onClick={() => void handleSave()}
             type="button"
           >
-            {isSaving ? 'Guardando...' : 'Guardar movimientos'}
+            {isSaving ? 'Guardando...' : 'Guardar movimientos nuevos'}
           </ActionButton>
         </>
       ) : null}
@@ -287,6 +361,17 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
       ) : null}
     </section>
   );
+}
+
+function getNewPreviewRows(
+  analysis: ImportPreviewAnalysis | null,
+  fallbackRows: ParsedCsvTransaction[]
+) {
+  return analysis
+    ? analysis.items
+        .filter((item) => item.status === 'new')
+        .map((item) => item.transaction)
+    : fallbackRows;
 }
 
 function getPreviewTotal(rows: ParsedCsvTransaction[]) {

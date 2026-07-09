@@ -8,6 +8,11 @@ import {
   mapMovementTypeToTransactionType,
   type ClassifiedImportTransaction
 } from '@/features/finance/lib/categories';
+import {
+  findEquivalentTransaction,
+  findSuspiciousTransaction,
+  type ComparableTransaction
+} from '@/features/finance/lib/duplicateDetection';
 import { ImportEngine } from '@/features/finance/lib/import/ImportEngine';
 import type {
   IgnoredImportRow,
@@ -43,11 +48,51 @@ export type CsvSaveResult = {
   duplicateCount: number;
   ignoredCount: number;
   pendingReviewCount: number;
+  suspiciousCount: number;
+};
+
+export type ImportDuplicateStatus = 'new' | 'duplicate' | 'suspicious';
+
+export type ImportPreviewItem = {
+  transaction: ParsedCsvTransaction;
+  status: ImportDuplicateStatus;
+  reason: string | null;
+  matchedTransaction: ExistingComparableTransaction | null;
+};
+
+export type ImportPreviewAnalysis = {
+  items: ImportPreviewItem[];
+  newCount: number;
+  duplicateCount: number;
+  suspiciousCount: number;
 };
 
 type ExistingTransactionRecord = {
+  id: string;
+  account_id: string;
+  amount: number | string;
+  description: string;
+  direction: 'inflow' | 'outflow';
   fingerprint: string | null;
   import_hash: string | null;
+  occurred_at: string;
+};
+
+type ExistingHashRecord = {
+  fingerprint: string | null;
+  import_hash: string | null;
+};
+
+type ExistingComparableTransaction = ComparableTransaction & {
+  id: string;
+  occurredAt: string;
+};
+
+type ClassifiedPreviewItem = {
+  transaction: ClassifiedImportTransaction & { importHash: string };
+  status: ImportDuplicateStatus;
+  reason: string | null;
+  matchedTransaction: ExistingComparableTransaction | null;
 };
 
 type TransferCandidateRecord = {
@@ -117,6 +162,98 @@ export async function parseImportFile(file: File, fallbackCurrency: string) {
   return new ImportEngine().parseFile(file, fallbackCurrency);
 }
 
+export async function analyzeImportPreview(params: {
+  workspaceId: string;
+  container: ImportContainerOption;
+  transactions: ParsedCsvTransaction[];
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const accountId = await findFinancialAccountForContainer({
+    container: params.container,
+    workspaceId: params.workspaceId
+  });
+
+  if (!accountId) {
+    const items = params.transactions.map((transaction) => ({
+      matchedTransaction: null,
+      reason: null,
+      status: 'new',
+      transaction
+    })) satisfies ImportPreviewItem[];
+
+    return buildPreviewAnalysis(items);
+  }
+
+  const existingTransactions = await getExistingComparableTransactions({
+    accountId,
+    transactions: params.transactions,
+    workspaceId: params.workspaceId
+  });
+  const seenNewTransactions: ComparableTransaction[] = [];
+  const items = params.transactions.map((transaction) => {
+    const comparableTransaction = mapImportToComparableTransaction({
+      accountId,
+      transaction
+    });
+    const existingDuplicate = findEquivalentTransaction(
+      comparableTransaction,
+      existingTransactions
+    );
+
+    if (existingDuplicate) {
+      return {
+        matchedTransaction:
+          existingDuplicate.transaction as ExistingComparableTransaction,
+        reason: existingDuplicate.reason,
+        status: 'duplicate',
+        transaction
+      } satisfies ImportPreviewItem;
+    }
+
+    const duplicateInFile = findEquivalentTransaction(
+      comparableTransaction,
+      seenNewTransactions
+    );
+
+    if (duplicateInFile) {
+      return {
+        matchedTransaction: null,
+        reason: 'Duplicado dentro del archivo seleccionado',
+        status: 'duplicate',
+        transaction
+      } satisfies ImportPreviewItem;
+    }
+
+    const suspicious = findSuspiciousTransaction(
+      comparableTransaction,
+      existingTransactions
+    );
+
+    if (suspicious) {
+      return {
+        matchedTransaction: suspicious.transaction as ExistingComparableTransaction,
+        reason: suspicious.reason,
+        status: 'suspicious',
+        transaction
+      } satisfies ImportPreviewItem;
+    }
+
+    seenNewTransactions.push(comparableTransaction);
+
+    return {
+      matchedTransaction: null,
+      reason: null,
+      status: 'new',
+      transaction
+    } satisfies ImportPreviewItem;
+  });
+
+  return buildPreviewAnalysis(items);
+}
+
 export async function saveCsvImport(params: {
   workspaceId: string;
   container: ImportContainerOption;
@@ -162,14 +299,16 @@ export async function saveCsvImport(params: {
       .from('transactions')
       .select('fingerprint, import_hash')
       .eq('workspace_id', params.workspaceId)
+      .is('deleted_at', null)
       .in('fingerprint', fingerprints)
-      .returns<ExistingTransactionRecord[]>(),
+      .returns<ExistingHashRecord[]>(),
     supabase
       .from('transactions')
       .select('fingerprint, import_hash')
       .eq('workspace_id', params.workspaceId)
+      .is('deleted_at', null)
       .in('import_hash', importHashes)
-      .returns<ExistingTransactionRecord[]>()
+      .returns<ExistingHashRecord[]>()
   ]);
 
   if (existingByFingerprint.error) {
@@ -200,16 +339,40 @@ export async function saveCsvImport(params: {
       !existingFingerprints.has(transaction.fingerprint) &&
       !existingImportHashes.has(transaction.importHash)
   );
-  const existingAutoCounterparts = await findExistingAutoCounterparts({
+  const strictDuplicateCount =
+    transactionsWithImportHash.length - candidateTransactions.length;
+  const robustDuplicateAnalysis = await analyzeClassifiedDuplicates({
     accountId,
     transactions: candidateTransactions,
     workspaceId: params.workspaceId
   });
-  const newTransactions = candidateTransactions.filter(
+  const robustDuplicateFingerprints = new Set(
+    robustDuplicateAnalysis.items
+      .filter((item) => item.status !== 'new')
+      .map((item) => item.transaction.fingerprint)
+  );
+  const equivalentDuplicateCount = robustDuplicateAnalysis.items.filter(
+    (item) => item.status === 'duplicate'
+  ).length;
+  const robustSuspiciousCount = robustDuplicateAnalysis.items.filter(
+    (item) => item.status === 'suspicious'
+  ).length;
+  const robustNewTransactions = candidateTransactions.filter(
+    (transaction) => !robustDuplicateFingerprints.has(transaction.fingerprint)
+  );
+  const existingAutoCounterparts = await findExistingAutoCounterparts({
+    accountId,
+    transactions: robustNewTransactions,
+    workspaceId: params.workspaceId
+  });
+  const newTransactions = robustNewTransactions.filter(
     (transaction) => !existingAutoCounterparts.has(transaction.fingerprint)
   );
+  const autoCounterpartDuplicateCount =
+    robustNewTransactions.length - newTransactions.length;
   const sourceFormat = transactionsWithImportHash[0]?.sourceFormat ?? 'unknown';
-  const duplicateCount = transactionsWithImportHash.length - newTransactions.length;
+  const duplicateCount =
+    strictDuplicateCount + equivalentDuplicateCount + autoCounterpartDuplicateCount;
   const pendingReviewCount = newTransactions.filter(
     (transaction) => !transaction.isReviewed
   ).length;
@@ -235,6 +398,7 @@ export async function saveCsvImport(params: {
         imported_rows: newTransactions.length,
         pending_review_rows: pendingReviewCount,
         parser: sourceFormat,
+        suspicious_rows: robustSuspiciousCount,
         total_rows: transactionsWithImportHash.length
       },
       source_type: 'csv',
@@ -251,10 +415,11 @@ export async function saveCsvImport(params: {
 
   if (newTransactions.length === 0) {
     return {
-      duplicateCount: transactionsWithImportHash.length,
+      duplicateCount,
       ignoredCount: params.ignoredRows?.length ?? 0,
       importedCount: 0,
-      pendingReviewCount: 0
+      pendingReviewCount: 0,
+      suspiciousCount: robustSuspiciousCount
     } satisfies CsvSaveResult;
   }
 
@@ -353,8 +518,170 @@ export async function saveCsvImport(params: {
     duplicateCount,
     ignoredCount: params.ignoredRows?.length ?? 0,
     importedCount: newTransactions.length,
-    pendingReviewCount
+    pendingReviewCount,
+    suspiciousCount: robustSuspiciousCount
   } satisfies CsvSaveResult;
+}
+
+async function analyzeClassifiedDuplicates(input: {
+  workspaceId: string;
+  accountId: string;
+  transactions: (ClassifiedImportTransaction & { importHash: string })[];
+}) {
+  const existingTransactions = await getExistingComparableTransactions({
+    accountId: input.accountId,
+    transactions: input.transactions,
+    workspaceId: input.workspaceId
+  });
+  const seenNewTransactions: ComparableTransaction[] = [];
+  const items: ClassifiedPreviewItem[] = input.transactions.map((transaction) => {
+    const comparableTransaction = mapClassifiedToComparableTransaction({
+      accountId: input.accountId,
+      transaction
+    });
+    const existingDuplicate = findEquivalentTransaction(
+      comparableTransaction,
+      existingTransactions
+    );
+
+    if (existingDuplicate) {
+      return {
+        matchedTransaction:
+          existingDuplicate.transaction as ExistingComparableTransaction,
+        reason: existingDuplicate.reason,
+        status: 'duplicate',
+        transaction
+      } satisfies ClassifiedPreviewItem;
+    }
+
+    const duplicateInFile = findEquivalentTransaction(
+      comparableTransaction,
+      seenNewTransactions
+    );
+
+    if (duplicateInFile) {
+      return {
+        matchedTransaction: null,
+        reason: 'Duplicado dentro del archivo seleccionado',
+        status: 'duplicate',
+        transaction
+      } satisfies ClassifiedPreviewItem;
+    }
+
+    const suspicious = findSuspiciousTransaction(
+      comparableTransaction,
+      existingTransactions
+    );
+
+    if (suspicious) {
+      return {
+        matchedTransaction: suspicious.transaction as ExistingComparableTransaction,
+        reason: suspicious.reason,
+        status: 'suspicious',
+        transaction
+      } satisfies ClassifiedPreviewItem;
+    }
+
+    seenNewTransactions.push(comparableTransaction);
+
+    return {
+      matchedTransaction: null,
+      reason: null,
+      status: 'new',
+      transaction
+    } satisfies ClassifiedPreviewItem;
+  });
+
+  return buildPreviewAnalysis(items);
+}
+
+async function getExistingComparableTransactions(input: {
+  workspaceId: string;
+  accountId: string;
+  transactions: Array<{ date: string }>;
+}) {
+  if (!supabase || input.transactions.length === 0) {
+    return [];
+  }
+
+  const dates = input.transactions.map((transaction) => transaction.date).sort();
+  const from = new Date(`${dates[0]}T00:00:00.000Z`);
+  const to = new Date(`${dates[dates.length - 1]}T23:59:59.999Z`);
+  from.setUTCDate(from.getUTCDate() - 2);
+  to.setUTCDate(to.getUTCDate() + 2);
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .select(
+      'id, account_id, amount, direction, occurred_at, description, fingerprint, import_hash'
+    )
+    .eq('workspace_id', input.workspaceId)
+    .eq('account_id', input.accountId)
+    .eq('status', 'posted')
+    .is('deleted_at', null)
+    .gte('occurred_at', from.toISOString())
+    .lte('occurred_at', to.toISOString())
+    .returns<ExistingTransactionRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data.map(mapExistingToComparableTransaction);
+}
+
+function mapImportToComparableTransaction(input: {
+  accountId: string;
+  transaction: ParsedCsvTransaction;
+}) {
+  return {
+    accountId: input.accountId,
+    amount: input.transaction.amount,
+    date: input.transaction.date,
+    description: input.transaction.description,
+    direction: input.transaction.direction
+  } satisfies ComparableTransaction;
+}
+
+function mapClassifiedToComparableTransaction(input: {
+  accountId: string;
+  transaction: ClassifiedImportTransaction;
+}) {
+  return {
+    accountId: input.accountId,
+    amount: input.transaction.amount,
+    date: input.transaction.date,
+    description: input.transaction.description,
+    direction: input.transaction.direction
+  } satisfies ComparableTransaction;
+}
+
+function mapExistingToComparableTransaction(transaction: ExistingTransactionRecord) {
+  return {
+    accountId: transaction.account_id,
+    amount: Number(transaction.amount),
+    date: transaction.occurred_at.slice(0, 10),
+    description: transaction.description,
+    direction: transaction.direction,
+    id: transaction.id,
+    occurredAt: transaction.occurred_at
+  } satisfies ExistingComparableTransaction;
+}
+
+function buildPreviewAnalysis<TItem extends { status: ImportDuplicateStatus }>(
+  items: TItem[]
+) {
+  return {
+    duplicateCount: items.filter((item) => item.status === 'duplicate').length,
+    items,
+    newCount: items.filter((item) => item.status === 'new').length,
+    suspiciousCount: items.filter((item) => item.status === 'suspicious').length
+  } satisfies {
+    duplicateCount: number;
+    items: TItem[];
+    newCount: number;
+    suspiciousCount: number;
+  };
 }
 
 async function applyAssetPurchasesToContainer(input: {
@@ -945,28 +1272,10 @@ async function ensureFinancialAccountForContainer(input: {
     throw new Error('Supabase no esta configurado.');
   }
 
-  const candidateNames = [
-    input.container.label,
-    input.container.name,
-    input.container.institution
-  ].filter((name): name is string => Boolean(name?.trim()));
+  const existingAccountId = await findFinancialAccountForContainer(input);
 
-  for (const candidateName of candidateNames) {
-    const { data, error } = await supabase
-      .from('financial_accounts')
-      .select('id, name')
-      .eq('workspace_id', input.workspaceId)
-      .ilike('name', candidateName)
-      .limit(1)
-      .maybeSingle<FinancialAccountRecord>();
-
-    if (error) {
-      throw error;
-    }
-
-    if (data) {
-      return data.id;
-    }
+  if (existingAccountId) {
+    return existingAccountId;
   }
 
   const { data: account, error: accountError } = await supabase
@@ -1001,6 +1310,41 @@ async function ensureFinancialAccountForContainer(input: {
   }
 
   return account.id;
+}
+
+async function findFinancialAccountForContainer(input: {
+  workspaceId: string;
+  container: ImportContainerOption;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const candidateNames = [
+    input.container.label,
+    input.container.name,
+    input.container.institution
+  ].filter((name): name is string => Boolean(name?.trim()));
+
+  for (const candidateName of candidateNames) {
+    const { data, error } = await supabase
+      .from('financial_accounts')
+      .select('id, name')
+      .eq('workspace_id', input.workspaceId)
+      .ilike('name', candidateName)
+      .limit(1)
+      .maybeSingle<FinancialAccountRecord>();
+
+    if (error) {
+      throw error;
+    }
+
+    if (data) {
+      return data.id;
+    }
+  }
+
+  return null;
 }
 
 function mapContainerTypeToAccountType(type: ContainerType): FinancialAccountType {

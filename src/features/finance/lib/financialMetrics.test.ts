@@ -6,6 +6,8 @@ import {
   calculateMonthlyBalance,
   calculateMonthlyFinancialMetrics,
   getMetricAmount,
+  isVeramarExpense,
+  isVeramarIncome,
   matchesMetricFilter,
   sumMetricTransactions,
   type MetricTransaction
@@ -128,6 +130,76 @@ describe('financial metrics', () => {
       sumMetricTransactions(investmentSection, buildMetricFilter('savings', accounts))
     ).toBe(metrics.savings.slice(0, 4).reduce((total, value) => total + value, 0));
   });
+
+  it('excludes linked internal transfers and asset purchases from income and expenses', () => {
+    const transactions = [
+      createTransaction('bbva', 'BBVA', 300, 'outflow', 'transfer', 'BBVA a MyInvestor', {
+        linkedTransactionId: 'transfer-in'
+      }),
+      createTransaction(
+        'myinvestor',
+        'MyInvestor',
+        300,
+        'inflow',
+        'transfer',
+        'Desde BBVA',
+        {
+          linkedTransactionId: 'transfer-out'
+        }
+      ),
+      createTransaction(
+        'myinvestor',
+        'MyInvestor',
+        40,
+        'outflow',
+        'investment',
+        'Fidelity S&P 500',
+        { transactionType: 'asset_purchase' }
+      ),
+      createTransaction('bbva', 'BBVA', 60, 'outflow', 'expense', 'Mercadona'),
+      createTransaction('bbva', 'BBVA', 2500, 'inflow', 'income', 'Nomina Fran')
+    ];
+
+    expect(
+      sumMetricTransactions(transactions, buildMetricFilter('income', accounts))
+    ).toBe(2500);
+    expect(
+      sumMetricTransactions(transactions, buildMetricFilter('expense', accounts))
+    ).toBe(-60);
+  });
+
+  it('identifies Veramar income and expenses from category-aware transactions', () => {
+    const booking = createTransaction(
+      'bbva',
+      'BBVA',
+      900,
+      'inflow',
+      'income',
+      'Booking Payments',
+      { categoryName: 'Ingresos Veramar / Booking' }
+    );
+    const veramarExpense = createTransaction(
+      'bbva',
+      'BBVA',
+      120,
+      'outflow',
+      'expense',
+      'Factura luz apartamento',
+      { categoryName: 'Gastos Veramar' }
+    );
+    const personalExpense = createTransaction(
+      'bbva',
+      'BBVA',
+      80,
+      'outflow',
+      'expense',
+      'Factura luz vivienda'
+    );
+
+    expect(isVeramarIncome(booking)).toBe(true);
+    expect(isVeramarExpense(veramarExpense)).toBe(true);
+    expect(isVeramarExpense(personalExpense)).toBe(false);
+  });
 });
 
 function createTransaction(
@@ -136,7 +208,8 @@ function createTransaction(
   amount: number,
   direction: MetricTransaction['direction'],
   movementType: MetricTransaction['movementType'],
-  description = accountName
+  description = accountName,
+  overrides: Partial<MetricTransaction> = {}
 ) {
   return {
     accountId,
@@ -144,7 +217,8 @@ function createTransaction(
     amount,
     description,
     direction,
-    movementType
+    movementType,
+    ...overrides
   } satisfies MetricTransaction;
 }
 

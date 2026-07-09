@@ -68,6 +68,14 @@ type AccountBalanceRecord = {
   account_id: string;
   balance: number | string;
   captured_at: string;
+  source: string;
+};
+
+type BalanceTransactionRecord = {
+  account_id: string;
+  amount: number | string;
+  direction: 'inflow' | 'outflow';
+  occurred_at: string;
 };
 
 const institutionOrder = [
@@ -174,11 +182,12 @@ export async function listFinancialAccounts(workspaceId: string) {
 
   const accountIds = accounts.map((account) => account.id);
   const balancesByAccount = new Map<string, AccountBalanceRecord>();
+  let balanceTransactions: BalanceTransactionRecord[] = [];
 
   if (accountIds.length > 0) {
     const { data: balances, error: balancesError } = await supabase
       .from('account_balances')
-      .select('account_id, balance, captured_at')
+      .select('account_id, balance, captured_at, source')
       .eq('workspace_id', workspaceId)
       .in('account_id', accountIds)
       .order('captured_at', { ascending: false })
@@ -188,11 +197,19 @@ export async function listFinancialAccounts(workspaceId: string) {
       throw balancesError;
     }
 
-    balances.forEach((balance) => {
-      if (!balancesByAccount.has(balance.account_id)) {
-        balancesByAccount.set(balance.account_id, balance);
-      }
-    });
+    balances
+      .filter((balance) => balance.source !== 'system')
+      .forEach((balance) => {
+        if (!balancesByAccount.has(balance.account_id)) {
+          balancesByAccount.set(balance.account_id, balance);
+        }
+      });
+
+    balanceTransactions = await getBalanceTransactions(
+      workspaceId,
+      accountIds,
+      balancesByAccount
+    );
   }
 
   const institutionsById = new Map(
@@ -210,10 +227,72 @@ export async function listFinancialAccounts(workspaceId: string) {
       institutionName: account.institution_id
         ? (institutionsById.get(account.institution_id) ?? 'Manual')
         : 'Manual',
-      balance: balance ? Number(balance.balance) : null,
+      balance: getBalanceWithTransactions(balance, balanceTransactions, account.id),
       balanceCapturedAt: balance?.captured_at ?? null
     } satisfies FinancialAccount;
   });
+}
+
+async function getBalanceTransactions(
+  workspaceId: string,
+  accountIds: string[],
+  balancesByAccount: Map<string, AccountBalanceRecord>
+) {
+  if (!supabase || accountIds.length === 0) {
+    return [];
+  }
+
+  const query = supabase
+    .from('transactions')
+    .select('account_id, amount, direction, occurred_at')
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'posted')
+    .in('account_id', accountIds);
+
+  if (balancesByAccount.size > 0) {
+    const oldestBalanceDate = [...balancesByAccount.values()].reduce(
+      (oldest, balance) => {
+        const capturedAt = new Date(balance.captured_at);
+
+        return capturedAt < oldest ? capturedAt : oldest;
+      },
+      new Date()
+    );
+
+    query.gt('occurred_at', oldestBalanceDate.toISOString());
+  }
+
+  const { data, error } = await query.returns<BalanceTransactionRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+function getBalanceWithTransactions(
+  balance: AccountBalanceRecord | undefined,
+  transactions: BalanceTransactionRecord[],
+  accountId: string
+) {
+  const capturedAt = balance ? new Date(balance.captured_at) : null;
+  const delta = transactions
+    .filter(
+      (transaction) =>
+        transaction.account_id === accountId &&
+        (!capturedAt || new Date(transaction.occurred_at) > capturedAt)
+    )
+    .reduce(
+      (total, transaction) =>
+        total +
+        (transaction.direction === 'inflow'
+          ? Number(transaction.amount)
+          : -Number(transaction.amount)),
+      0
+    );
+
+  return Number(balance?.balance ?? 0) + delta;
 }
 
 export async function createFinancialAccount(input: CreateFinancialAccountInput) {

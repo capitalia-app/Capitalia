@@ -7,6 +7,8 @@ export type MetricTransaction = {
   accountId: string;
   accountName: string;
   amount: number;
+  categoryId?: string | null;
+  categoryName?: string | null;
   description: string;
   direction: 'inflow' | 'outflow';
   linkedTransactionId?: string | null;
@@ -68,6 +70,14 @@ export function matchesMetricFilter(
 ) {
   if (filter.metric === 'savings') {
     return matchesSavingsMetric(transaction, filter);
+  }
+
+  if (filter.metric === 'income' && !isRealIncome(transaction)) {
+    return false;
+  }
+
+  if (filter.metric === 'expense' && !isRealExpense(transaction)) {
+    return false;
   }
 
   if (!filter.movementTypes.includes(transaction.movementType)) {
@@ -153,6 +163,42 @@ export function getSignedAmount(transaction: MetricTransaction) {
   const amount = Math.abs(transaction.amount);
 
   return transaction.direction === 'inflow' ? amount : -amount;
+}
+
+export function isRealIncome(transaction: MetricTransaction) {
+  return (
+    transaction.movementType === 'income' &&
+    transaction.direction === 'inflow' &&
+    transaction.transactionType !== 'investment_transfer' &&
+    transaction.transactionType !== 'asset_purchase' &&
+    !transaction.linkedTransactionId
+  );
+}
+
+export function isRealExpense(transaction: MetricTransaction) {
+  return (
+    transaction.movementType === 'expense' &&
+    transaction.direction === 'outflow' &&
+    transaction.transactionType !== 'investment_transfer' &&
+    transaction.transactionType !== 'asset_purchase' &&
+    !transaction.linkedTransactionId
+  );
+}
+
+export function isVeramarIncome(transaction: MetricTransaction) {
+  return isRealIncome(transaction) && isVeramarTransaction(transaction);
+}
+
+export function isVeramarExpense(transaction: MetricTransaction) {
+  return isRealExpense(transaction) && isVeramarTransaction(transaction);
+}
+
+export function isVeramarTransaction(transaction: MetricTransaction) {
+  const normalizedText = normalizeText(
+    `${transaction.description} ${transaction.categoryName ?? ''} ${transaction.accountName}`
+  );
+
+  return normalizedText.includes('veramar') || normalizedText.includes('booking');
 }
 
 export function getMetricAmount(transaction: MetricTransaction, filter: MetricFilter) {

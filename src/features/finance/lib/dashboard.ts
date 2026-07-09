@@ -81,6 +81,7 @@ type BalanceRecord = {
   account_id: string;
   balance: number | string;
   captured_at: string;
+  source: string;
 };
 
 type TransactionRecord = {
@@ -287,7 +288,7 @@ async function getLatestBalances(workspaceId: string, accountIds: string[]) {
 
   const { data, error } = await supabase
     .from('account_balances')
-    .select('account_id, balance, captured_at')
+    .select('account_id, balance, captured_at, source')
     .eq('workspace_id', workspaceId)
     .in('account_id', accountIds)
     .order('captured_at', { ascending: false })
@@ -299,11 +300,13 @@ async function getLatestBalances(workspaceId: string, accountIds: string[]) {
 
   const balances = new Map<string, BalanceRecord>();
 
-  data.forEach((balance) => {
-    if (!balances.has(balance.account_id)) {
-      balances.set(balance.account_id, balance);
-    }
-  });
+  data
+    .filter((balance) => balance.source !== 'system')
+    .forEach((balance) => {
+      if (!balances.has(balance.account_id)) {
+        balances.set(balance.account_id, balance);
+      }
+    });
 
   return balances;
 }

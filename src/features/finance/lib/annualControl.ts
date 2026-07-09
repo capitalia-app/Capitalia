@@ -10,6 +10,9 @@ import {
   calculateMonthlyFinancialMetrics,
   getMetricAmount,
   getSignedAmount,
+  isRealExpense,
+  isRealIncome,
+  isVeramarTransaction as isMetricVeramarTransaction,
   matchesMetricFilter,
   type FinancialMetric
 } from '@/features/finance/lib/financialMetrics';
@@ -289,9 +292,7 @@ function normalizeTransactions(input: {
 }
 
 function buildIncomeRows(transactions: AnnualTransaction[], year: number) {
-  const incomeTransactions = transactions.filter(
-    (transaction) => transaction.movementType === 'income'
-  );
+  const incomeTransactions = transactions.filter(isRealIncome);
 
   return [
     buildRuleRow(
@@ -331,9 +332,7 @@ function buildIncomeRows(transactions: AnnualTransaction[], year: number) {
 }
 
 function buildExpenseRows(transactions: AnnualTransaction[], year: number) {
-  const expenseTransactions = transactions.filter(
-    (transaction) => transaction.movementType === 'expense'
-  );
+  const expenseTransactions = transactions.filter(isRealExpense);
   const fixedRules = [
     ['Hipoteca', ['hipoteca']],
     ['Luz', ['luz', 'iberdrola', 'endesa']],
@@ -344,7 +343,7 @@ function buildExpenseRows(transactions: AnnualTransaction[], year: number) {
     ],
     ['Seguros', ['seguro', 'seguros', 'mapfre']],
     ['Comunidad', ['comunidad']],
-    ['Veramar', ['veramar']],
+    ['Gastos Veramar', ['gastos veramar', 'veramar']],
     ['Otros fijos', ['fijo', 'fijos']]
   ] satisfies [string, string[]][];
   const variableRules = [
@@ -382,12 +381,8 @@ function buildExpenseRows(transactions: AnnualTransaction[], year: number) {
 
 function buildVeramarSummary(transactions: AnnualTransaction[], year: number) {
   const veramarTransactions = transactions.filter(isVeramarTransaction);
-  const incomeTransactions = veramarTransactions.filter(
-    (transaction) => transaction.movementType === 'income'
-  );
-  const expenseTransactions = veramarTransactions.filter(
-    (transaction) => transaction.movementType === 'expense'
-  );
+  const incomeTransactions = veramarTransactions.filter(isRealIncome);
+  const expenseTransactions = veramarTransactions.filter(isRealExpense);
   const incomeRows = [
     buildRuleRow(
       'veramar-booking',
@@ -942,10 +937,7 @@ function sum(values: number[]) {
 }
 
 function isVeramarTransaction(transaction: AnnualTransaction) {
-  return (
-    transaction.searchText.includes('veramar') ||
-    transaction.searchText.includes('booking')
-  );
+  return isMetricVeramarTransaction(transaction);
 }
 
 function getTransferDestination(transaction: AnnualTransaction) {

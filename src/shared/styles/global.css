@@ -50,15 +50,6 @@ select {
   font: inherit;
 }
 
-select {
-  color-scheme: dark;
-}
-
-select option {
-  color: var(--paper);
-  background: #101820;
-}
-
 button {
   cursor: pointer;
 }
@@ -85,6 +76,10 @@ button {
   background:
     linear-gradient(155deg, rgba(95, 120, 111, 0.18), transparent 42%),
     linear-gradient(180deg, #f8f4eb 0%, #efe5d4 100%);
+}
+
+.experience-frame.dashboard-screen {
+  overflow-y: visible;
 }
 
 .experience-canvas {
@@ -278,7 +273,7 @@ h1 {
 
 .app-header {
   position: sticky;
-  top: max(0px, env(safe-area-inset-top));
+  top: 0;
   z-index: 80;
   display: flex;
   align-items: center;
@@ -320,6 +315,7 @@ h1 {
 }
 
 .global-year-selector select {
+  color-scheme: dark;
   width: 100%;
   min-height: 34px;
   border: 1px solid rgba(244, 239, 228, 0.16);
@@ -331,6 +327,11 @@ h1 {
   font-size: 0.84rem;
   font-weight: 820;
   outline: none;
+}
+
+.global-year-selector select option {
+  color: var(--paper);
+  background: #101820;
 }
 
 .global-year-selector select:focus {
@@ -1925,8 +1926,8 @@ h1 {
 .account-form select option,
 .movement-filters select option,
 .app-modal select option {
-  color: var(--paper);
-  background: #101820;
+  color: var(--ink);
+  background: #ffffff;
 }
 
 .account-form input:focus,

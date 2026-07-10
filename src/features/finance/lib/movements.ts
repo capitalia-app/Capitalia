@@ -2,9 +2,9 @@ import type { FinancialAccount } from '@/features/finance/lib/accounts';
 import { listFinancialAccounts } from '@/features/finance/lib/accounts';
 import {
   applyCategoryRuleToExistingTransactions,
-  deriveRuleKeyword,
   listTransactionCategories,
   mapMovementTypeToTransactionType,
+  rememberCategoryRule,
   type TransactionCategory
 } from '@/features/finance/lib/categories';
 import {
@@ -13,6 +13,7 @@ import {
   type FinancialMetric
 } from '@/features/finance/lib/financialMetrics';
 import type { MovementType } from '@/features/finance/lib/import/types';
+import { deriveRuleKeyword } from '@/features/finance/lib/ruleMatching';
 import { supabase } from '@/shared/lib/supabase';
 
 export type MovementReviewFilter = MovementType | 'all' | 'pending';
@@ -276,25 +277,24 @@ export async function updateMovement(input: {
     const keyword = deriveRuleKeyword(input.description);
 
     if (keyword) {
-      const { error: ruleError } = await supabase.from('category_rules').insert({
-        category_id: input.categoryId,
+      await rememberCategoryRule({
+        categoryId: input.categoryId,
         keyword,
-        match_type: 'contains',
         priority: 25,
-        workspace_id: input.workspaceId
+        workspaceId: input.workspaceId
       });
 
-      if (ruleError) {
-        throw ruleError;
-      }
-
-      await applyCategoryRuleToExistingTransactions({
+      const appliedCount = await applyCategoryRuleToExistingTransactions({
         categoryId: input.categoryId,
         keyword,
         workspaceId: input.workspaceId
       });
+
+      return { appliedRuleCount: appliedCount };
     }
   }
+
+  return { appliedRuleCount: 0 };
 }
 
 async function ensureTransferCounterpart(input: {

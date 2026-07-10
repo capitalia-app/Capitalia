@@ -1905,6 +1905,7 @@ function MovementsPanel({
   const [isLoadingMovements, setIsLoadingMovements] = useState(false);
   const [isSavingMovement, setIsSavingMovement] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [localStatus, setLocalStatus] = useState<string | null>(null);
   const workspaceId = summary?.workspace.id;
 
   useEffect(() => {
@@ -1981,6 +1982,7 @@ function MovementsPanel({
 
   function openMovementEditor(movement: MoneyMovement) {
     setSelectedMovement(movement);
+    setLocalStatus(null);
     setEditState({
       accountId: movement.accountId,
       categoryId: movement.categoryId ?? '',
@@ -1999,9 +2001,10 @@ function MovementsPanel({
 
     setIsSavingMovement(true);
     setLocalError(null);
+    setLocalStatus(null);
 
     try {
-      await updateMovement({
+      const result = await updateMovement({
         accountId: editState.accountId,
         categoryId: editState.categoryId || null,
         counterpartyAccountId: editState.counterpartyAccountId || null,
@@ -2013,6 +2016,13 @@ function MovementsPanel({
         transactionId: selectedMovement.id,
         workspaceId: summary.workspace.id
       });
+      if (editState.rememberRule) {
+        setLocalStatus(
+          result.appliedRuleCount > 0
+            ? `Regla guardada. Se ha aplicado a ${result.appliedRuleCount} movimientos pendientes.`
+            : 'Regla guardada. Se aplicara a futuros movimientos equivalentes.'
+        );
+      }
       setSelectedMovement(null);
       setEditState(null);
       await loadMovementPage();
@@ -2050,6 +2060,9 @@ function MovementsPanel({
 
       {localError ? (
         <p className="auth-message auth-message--error">{localError}</p>
+      ) : null}
+      {localStatus ? (
+        <p className="auth-message auth-message--success">{localStatus}</p>
       ) : null}
 
       <MovementFiltersPanel

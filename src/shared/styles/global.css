@@ -50,6 +50,15 @@ select {
   font: inherit;
 }
 
+select {
+  color-scheme: dark;
+}
+
+select option {
+  color: var(--paper);
+  background: #101820;
+}
+
 button {
   cursor: pointer;
 }
@@ -269,7 +278,7 @@ h1 {
 
 .app-header {
   position: sticky;
-  top: 0;
+  top: max(0px, env(safe-area-inset-top));
   z-index: 80;
   display: flex;
   align-items: center;
@@ -322,6 +331,11 @@ h1 {
   font-size: 0.84rem;
   font-weight: 820;
   outline: none;
+}
+
+.global-year-selector select:focus {
+  border-color: rgba(196, 161, 90, 0.62);
+  box-shadow: 0 0 0 3px rgba(196, 161, 90, 0.14);
 }
 
 .connection-dot {
@@ -1761,6 +1775,7 @@ h1 {
 .accounts-heading {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
+  column-gap: 16px;
 }
 
 .accounts-heading h2 {
@@ -1768,10 +1783,12 @@ h1 {
 }
 
 .accounts-heading > strong {
+  max-width: 100%;
   color: var(--gold-soft);
   font-size: clamp(1.08rem, 4.8vw, 1.5rem);
   line-height: 1;
   text-align: right;
+  white-space: nowrap;
 }
 
 .panel-status,
@@ -1908,7 +1925,8 @@ h1 {
 .account-form select option,
 .movement-filters select option,
 .app-modal select option {
-  color: var(--ink);
+  color: var(--paper);
+  background: #101820;
 }
 
 .account-form input:focus,
@@ -2532,6 +2550,21 @@ h1 {
 }
 
 @media (max-width: 759px) {
+  .accounts-heading {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .accounts-heading h2 {
+    max-width: 100%;
+  }
+
+  .accounts-heading > strong {
+    justify-self: start;
+    text-align: left;
+    white-space: normal;
+  }
+
   .annual-table-heading {
     grid-template-columns: 1fr;
   }

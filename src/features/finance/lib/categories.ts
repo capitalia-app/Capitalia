@@ -3,6 +3,14 @@ import type {
   MovementType,
   ParsedCsvTransaction
 } from '@/features/finance/lib/import/types';
+import {
+  deriveRuleKeyword,
+  findBestRuleMatch,
+  getRuleMatchResult,
+  getRuleSpecificity,
+  normalizeRuleText,
+  shouldApplyRuleToPendingTransaction
+} from '@/features/finance/lib/ruleMatching';
 import { supabase } from '@/shared/lib/supabase';
 
 export type TransactionCategory = {
@@ -22,6 +30,9 @@ export type CategoryRule = {
   keyword: string;
   categoryId: string;
   priority: number;
+  accountId: string | null;
+  normalizedKeyword: string | null;
+  specificity: number | null;
 };
 
 export type SaveCategoryInput = {
@@ -66,6 +77,16 @@ type RuleRecord = {
   keyword: string;
   category_id: string;
   priority: number;
+  account_id: string | null;
+  normalized_keyword: string | null;
+  specificity: number | null;
+};
+
+type PendingTransactionRecord = {
+  id: string;
+  account_id: string | null;
+  description: string;
+  is_reviewed: boolean;
 };
 
 export async function listTransactionCategories(workspaceId: string) {
@@ -95,7 +116,9 @@ export async function listCategoryRules(workspaceId: string) {
 
   const { data, error } = await supabase
     .from('category_rules')
-    .select('id, workspace_id, keyword, category_id, priority')
+    .select(
+      'id, workspace_id, keyword, category_id, priority, account_id, normalized_keyword, specificity'
+    )
     .or(`workspace_id.is.null,workspace_id.eq.${workspaceId}`)
     .order('priority', { ascending: true })
     .order('created_at', { ascending: true })
@@ -106,10 +129,13 @@ export async function listCategoryRules(workspaceId: string) {
   }
 
   return data.map((rule) => ({
+    accountId: rule.account_id,
     categoryId: rule.category_id,
     id: rule.id,
     keyword: rule.keyword,
+    normalizedKeyword: rule.normalized_keyword,
     priority: rule.priority,
+    specificity: rule.specificity,
     workspaceId: rule.workspace_id
   }));
 }
@@ -185,10 +211,13 @@ export async function saveCategoryRule(input: SaveCategoryRuleInput) {
   }
 
   const payload = {
+    account_id: null,
     category_id: input.categoryId,
     keyword: input.keyword.trim(),
     match_type: 'contains',
+    normalized_keyword: normalizeRuleText(input.keyword),
     priority: input.priority,
+    specificity: getRuleSpecificity(input.keyword),
     workspace_id: input.workspaceId
   };
 
@@ -206,11 +235,74 @@ export async function saveCategoryRule(input: SaveCategoryRuleInput) {
     throw error;
   }
 
-  await applyCategoryRuleToExistingTransactions({
+  return applyCategoryRuleToExistingTransactions({
     categoryId: input.categoryId,
     keyword: input.keyword,
     workspaceId: input.workspaceId
   });
+}
+
+export async function rememberCategoryRule(input: {
+  workspaceId: string;
+  categoryId: string;
+  keyword: string;
+  priority: number;
+  accountId?: string | null;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const keyword = input.keyword.trim();
+  const normalizedKeyword = normalizeRuleText(keyword);
+
+  if (!normalizedKeyword) {
+    return null;
+  }
+
+  let existingQuery = supabase
+    .from('category_rules')
+    .select('id')
+    .eq('workspace_id', input.workspaceId)
+    .eq('category_id', input.categoryId)
+    .eq('normalized_keyword', normalizedKeyword)
+    .limit(1);
+
+  existingQuery = input.accountId
+    ? existingQuery.eq('account_id', input.accountId)
+    : existingQuery.is('account_id', null);
+
+  const { data: existingRules, error: existingError } =
+    await existingQuery.returns<{ id: string }[]>();
+
+  if (existingError) {
+    throw existingError;
+  }
+
+  if (existingRules[0]) {
+    return existingRules[0].id;
+  }
+
+  const { data, error } = await supabase
+    .from('category_rules')
+    .insert({
+      account_id: input.accountId ?? null,
+      category_id: input.categoryId,
+      keyword,
+      match_type: 'contains',
+      normalized_keyword: normalizedKeyword,
+      priority: input.priority,
+      specificity: getRuleSpecificity(keyword),
+      workspace_id: input.workspaceId
+    })
+    .select('id')
+    .single<{ id: string }>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data.id;
 }
 
 export async function applyCategoryRuleToExistingTransactions(input: {
@@ -225,7 +317,7 @@ export async function applyCategoryRuleToExistingTransactions(input: {
   const keyword = input.keyword.trim();
 
   if (!keyword) {
-    return;
+    return 0;
   }
 
   const categories = await listTransactionCategories(input.workspaceId);
@@ -233,6 +325,51 @@ export async function applyCategoryRuleToExistingTransactions(input: {
 
   if (!category) {
     throw new Error('Categoria no encontrada.');
+  }
+
+  const { data: pendingTransactions, error: pendingError } = await supabase
+    .from('transactions')
+    .select('id, account_id, description, is_reviewed')
+    .eq('workspace_id', input.workspaceId)
+    .eq('status', 'posted')
+    .eq('is_reviewed', false)
+    .returns<PendingTransactionRecord[]>();
+
+  if (pendingError) {
+    throw pendingError;
+  }
+
+  const rule = {
+    accountId: null,
+    categoryId: category.id,
+    id: 'pending-rule',
+    keyword,
+    movementType: category.movementType,
+    normalizedKeyword: normalizeRuleText(keyword),
+    priority: 25,
+    specificity: getRuleSpecificity(keyword),
+    workspaceId: input.workspaceId
+  };
+  const matchingTransactions = pendingTransactions.filter((transaction) => {
+    const result = getRuleMatchResult([rule], transaction.description, {
+      accountId: transaction.account_id
+    });
+
+    debugRuleMatch({
+      description: transaction.description,
+      result: result.debug
+    });
+
+    return shouldApplyRuleToPendingTransaction({
+      accountId: transaction.account_id,
+      description: transaction.description,
+      isReviewed: transaction.is_reviewed,
+      rule
+    });
+  });
+
+  if (matchingTransactions.length === 0) {
+    return 0;
   }
 
   const { error } = await supabase
@@ -244,11 +381,25 @@ export async function applyCategoryRuleToExistingTransactions(input: {
       transaction_type: mapCategoryToTransactionType(category)
     })
     .eq('workspace_id', input.workspaceId)
-    .ilike('description', `%${escapeIlikePattern(keyword)}%`);
+    .in(
+      'id',
+      matchingTransactions.map((transaction) => transaction.id)
+    );
 
   if (error) {
     throw error;
   }
+
+  if (import.meta.env.DEV) {
+    console.debug('Capitalia rule retroactive update', {
+      categoryId: category.id,
+      keyword,
+      updatedTransactions: matchingTransactions.length,
+      workspaceId: input.workspaceId
+    });
+  }
+
+  return matchingTransactions.length;
 }
 
 export async function deleteCategoryRule(input: { workspaceId: string; ruleId: string }) {
@@ -380,7 +531,7 @@ export async function updateTransactionCategory(params: {
       category_id: category.id,
       is_reviewed: true,
       movement_type: category.movementType,
-      transaction_type: mapMovementTypeToTransactionType(category.movementType)
+      transaction_type: mapCategoryToTransactionType(category)
     })
     .eq('id', params.transactionId)
     .eq('workspace_id', params.workspaceId);
@@ -393,19 +544,22 @@ export async function updateTransactionCategory(params: {
     const keyword = deriveRuleKeyword(params.description);
 
     if (keyword) {
-      const { error: ruleError } = await supabase.from('category_rules').insert({
-        category_id: category.id,
+      await rememberCategoryRule({
+        categoryId: category.id,
         keyword,
-        match_type: 'contains',
         priority: 50,
-        workspace_id: params.workspaceId
+        workspaceId: params.workspaceId
       });
 
-      if (ruleError) {
-        throw ruleError;
-      }
+      return applyCategoryRuleToExistingTransactions({
+        categoryId: category.id,
+        keyword,
+        workspaceId: params.workspaceId
+      });
     }
   }
+
+  return 0;
 }
 
 export function getMovementTypeLabel(type: MovementType) {
@@ -480,31 +634,8 @@ function mapCategoryRecord(record: CategoryRecord) {
   } satisfies TransactionCategory;
 }
 
-function findBestRuleMatch(rules: CategoryRule[], normalizedDescription: string) {
-  const matchingRules = rules.filter((rule) =>
-    normalizedDescription.includes(normalizeForMatch(rule.keyword))
-  );
-
-  return [...matchingRules].sort((left, right) => {
-    if (left.workspaceId && !right.workspaceId) {
-      return -1;
-    }
-
-    if (!left.workspaceId && right.workspaceId) {
-      return 1;
-    }
-
-    return left.priority - right.priority;
-  })[0];
-}
-
 function normalizeForMatch(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizeRuleText(value);
 }
 
 const fundPriorityKeywords = [
@@ -566,16 +697,18 @@ function getCategoryByName(
   return categoriesByName.get(`${normalizeForMatch(name)}|${movementType}`) ?? null;
 }
 
-function escapeIlikePattern(value: string) {
-  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-}
+function debugRuleMatch(input: {
+  description: string;
+  result: ReturnType<typeof getRuleMatchResult>['debug'];
+}) {
+  if (!import.meta.env.DEV) {
+    return;
+  }
 
-export function deriveRuleKeyword(description: string) {
-  const ignoredWords = new Set(['pago', 'compra', 'tarjeta', 'recibo', 'cargo']);
-
-  return normalizeForMatch(description)
-    .split(' ')
-    .filter((word) => word.length >= 4 && !ignoredWords.has(word))
-    .slice(0, 2)
-    .join(' ');
+  console.debug('Capitalia rule match', {
+    candidates: input.result.candidates,
+    normalizedDescription: input.result.normalizedDescription,
+    originalDescription: input.description,
+    selectedRuleId: input.result.selectedRuleId
+  });
 }

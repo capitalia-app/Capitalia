@@ -1,5 +1,8 @@
 import type { FinancialAccount } from '@/features/finance/lib/accounts';
-import { listFinancialAccounts } from '@/features/finance/lib/accounts';
+import {
+  ensureFinancialAccountsForContainers,
+  listFinancialAccounts
+} from '@/features/finance/lib/accounts';
 import {
   applyCategoryRuleToExistingTransactions,
   listTransactionCategories,
@@ -15,6 +18,7 @@ import {
 import { getDateInputRange } from '@/features/finance/lib/financialPeriods';
 import type { MovementType } from '@/features/finance/lib/import/types';
 import { deriveRuleKeyword } from '@/features/finance/lib/ruleMatching';
+import { listFinancialContainers } from '@/features/finance/lib/snapshots';
 import { supabase } from '@/shared/lib/supabase';
 
 export type MovementReviewFilter = MovementType | 'all' | 'pending';
@@ -92,6 +96,13 @@ type EditableTransactionRecord = {
 };
 
 export async function getMovementFiltersContext(workspaceId: string) {
+  const containers = await listFinancialContainers(workspaceId);
+
+  await ensureFinancialAccountsForContainers({
+    containers,
+    workspaceId
+  });
+
   const [accounts, categories] = await Promise.all([
     listFinancialAccounts(workspaceId),
     listTransactionCategories(workspaceId)

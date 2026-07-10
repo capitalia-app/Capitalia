@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import type { ContainerType, FinancialContainer } from '@/features/finance/lib/snapshots';
 
 export type FinancialAccountType =
   | 'checking'
@@ -62,6 +63,10 @@ type FinancialAccountRecord = {
   type: FinancialAccountType;
   currency: string;
   institution_id: string | null;
+};
+
+type CreatedFinancialAccountRecord = {
+  id: string;
 };
 
 type AccountBalanceRecord = {
@@ -231,6 +236,142 @@ export async function listFinancialAccounts(workspaceId: string) {
       balanceCapturedAt: balance?.captured_at ?? null
     } satisfies FinancialAccount;
   });
+}
+
+export async function ensureFinancialAccountsForContainers(input: {
+  workspaceId: string;
+  containers: FinancialContainer[];
+}) {
+  const eligibleContainers = input.containers.filter(isTransferContainer);
+
+  if (eligibleContainers.length === 0) {
+    return;
+  }
+
+  await Promise.all(
+    eligibleContainers.map((container) =>
+      ensureFinancialAccountForContainer({
+        container,
+        workspaceId: input.workspaceId
+      })
+    )
+  );
+}
+
+async function ensureFinancialAccountForContainer(input: {
+  workspaceId: string;
+  container: FinancialContainer;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const existingAccountId = await findFinancialAccountForContainer(input);
+
+  if (existingAccountId) {
+    return existingAccountId;
+  }
+
+  const { data: account, error: accountError } = await supabase
+    .from('financial_accounts')
+    .insert({
+      currency: input.container.currency.toUpperCase(),
+      institution_id: null,
+      name: getContainerFinancialAccountLabel(input.container),
+      status: 'active',
+      type: mapContainerTypeToAccountType(input.container.containerType),
+      workspace_id: input.workspaceId
+    })
+    .select('id')
+    .single<CreatedFinancialAccountRecord>();
+
+  if (accountError) {
+    throw accountError;
+  }
+
+  const { error: balanceError } = await supabase.from('account_balances').insert({
+    account_id: account.id,
+    available_balance: 0,
+    balance: 0,
+    captured_at: new Date().toISOString(),
+    currency: input.container.currency.toUpperCase(),
+    source: 'system',
+    workspace_id: input.workspaceId
+  });
+
+  if (balanceError) {
+    throw balanceError;
+  }
+
+  return account.id;
+}
+
+async function findFinancialAccountForContainer(input: {
+  workspaceId: string;
+  container: FinancialContainer;
+}) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const candidateNames = [
+    getContainerFinancialAccountLabel(input.container),
+    input.container.name,
+    input.container.institution
+  ].filter((name): name is string => Boolean(name?.trim()));
+
+  for (const candidateName of candidateNames) {
+    const { data, error } = await supabase
+      .from('financial_accounts')
+      .select('id, name')
+      .eq('workspace_id', input.workspaceId)
+      .ilike('name', candidateName)
+      .limit(1)
+      .maybeSingle<FinancialAccountRecord>();
+
+    if (error) {
+      throw error;
+    }
+
+    if (data) {
+      return data.id;
+    }
+  }
+
+  return null;
+}
+
+function isTransferContainer(container: FinancialContainer) {
+  return ['bank', 'broker', 'wallet', 'exchange', 'cash'].includes(
+    container.containerType
+  );
+}
+
+function mapContainerTypeToAccountType(type: ContainerType): FinancialAccountType {
+  if (type === 'broker') {
+    return 'brokerage';
+  }
+
+  if (type === 'wallet' || type === 'exchange') {
+    return 'crypto_wallet';
+  }
+
+  if (type === 'cash') {
+    return 'cash';
+  }
+
+  return type === 'bank' ? 'checking' : 'other';
+}
+
+function getContainerFinancialAccountLabel(container: FinancialContainer) {
+  if (
+    container.institution &&
+    container.institution.trim().toLowerCase() !== container.name.trim().toLowerCase()
+  ) {
+    return `${container.institution} / ${container.name}`;
+  }
+
+  return container.name;
 }
 
 async function getBalanceTransactions(

@@ -608,23 +608,81 @@ function GlobalYearSelector({
   selectedYear: number;
   years: number[];
 }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectorRef = useRef<HTMLDivElement | null>(null);
   const options = years.includes(selectedYear)
     ? years
     : [...years, selectedYear].sort((first, second) => second - first);
 
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        selectorRef.current &&
+        event.target instanceof Node &&
+        !selectorRef.current.contains(event.target)
+      ) {
+        setIsOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
   return (
-    <label className="global-year-selector" aria-label="Ano seleccionado">
-      <select
-        onChange={(event) => onChange(Number(event.target.value))}
-        value={selectedYear}
+    <div className="global-year-selector" ref={selectorRef}>
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-label={`Ano seleccionado: ${selectedYear}`}
+        className="global-year-selector__trigger"
+        onClick={() => setIsOpen((current) => !current)}
+        type="button"
       >
-        {options.map((year) => (
-          <option key={year} value={year}>
-            {year}
-          </option>
-        ))}
-      </select>
-    </label>
+        <span>{selectedYear}</span>
+        <span aria-hidden="true" className="global-year-selector__chevron">
+          ▾
+        </span>
+      </button>
+      {isOpen ? (
+        <div
+          aria-label="Seleccionar ano"
+          className="global-year-selector__menu"
+          role="listbox"
+        >
+          {options.map((year) => (
+            <button
+              aria-selected={year === selectedYear}
+              className="global-year-selector__option"
+              key={year}
+              onClick={() => {
+                onChange(year);
+                setIsOpen(false);
+              }}
+              role="option"
+              type="button"
+            >
+              {year}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

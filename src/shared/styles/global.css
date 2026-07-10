@@ -309,34 +309,80 @@ h1 {
 }
 
 .global-year-selector {
-  display: block;
-  width: 86px;
+  position: relative;
+  flex: 0 0 auto;
+  width: 88px;
   min-width: 0;
 }
 
-.global-year-selector select {
-  color-scheme: dark;
+.global-year-selector__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   width: 100%;
-  min-height: 34px;
+  min-height: 42px;
   border: 1px solid rgba(244, 239, 228, 0.16);
   border-radius: 8px;
-  padding: 0 28px 0 10px;
+  padding: 0 10px;
   color: var(--paper);
   background: rgba(244, 239, 228, 0.08);
-  font: inherit;
   font-size: 0.84rem;
   font-weight: 820;
+  line-height: 1;
   outline: none;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.global-year-selector select option {
-  color: var(--paper);
-  background: #101820;
-}
-
-.global-year-selector select:focus {
+.global-year-selector__trigger:focus-visible {
   border-color: rgba(196, 161, 90, 0.62);
   box-shadow: 0 0 0 3px rgba(196, 161, 90, 0.14);
+}
+
+.global-year-selector__chevron {
+  display: inline-flex;
+  align-items: center;
+  color: rgba(244, 239, 228, 0.72);
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.global-year-selector__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 140;
+  display: grid;
+  min-width: 100%;
+  max-height: min(280px, calc(100dvh - 96px));
+  overflow-y: auto;
+  border: 1px solid rgba(244, 239, 228, 0.14);
+  border-radius: 8px;
+  padding: 4px;
+  background: #101820;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
+}
+
+.global-year-selector__option {
+  min-height: 40px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 12px;
+  color: var(--paper);
+  background: transparent;
+  font-size: 0.84rem;
+  font-weight: 760;
+  line-height: 1;
+  text-align: center;
+}
+
+.global-year-selector__option:hover,
+.global-year-selector__option:focus-visible,
+.global-year-selector__option[aria-selected='true'] {
+  color: #101820;
+  background: var(--gold);
+  outline: none;
 }
 
 .connection-dot {

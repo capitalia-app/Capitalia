@@ -12,6 +12,7 @@ import {
   matchesMetricFilter,
   type FinancialMetric
 } from '@/features/finance/lib/financialMetrics';
+import { getDateInputRange } from '@/features/finance/lib/financialPeriods';
 import type { MovementType } from '@/features/finance/lib/import/types';
 import { deriveRuleKeyword } from '@/features/finance/lib/ruleMatching';
 import { supabase } from '@/shared/lib/supabase';
@@ -145,12 +146,14 @@ export async function listMovements(input: {
     query = query.eq('category_id', input.filters.categoryId);
   }
 
-  if (input.filters.dateFrom) {
-    query = query.gte('occurred_at', `${input.filters.dateFrom}T00:00:00.000Z`);
+  const dateRange = getDateInputRange(input.filters.dateFrom, input.filters.dateTo);
+
+  if (dateRange.startIso) {
+    query = query.gte('occurred_at', dateRange.startIso);
   }
 
-  if (input.filters.dateTo) {
-    query = query.lte('occurred_at', `${input.filters.dateTo}T23:59:59.999Z`);
+  if (dateRange.endExclusiveIso) {
+    query = query.lt('occurred_at', dateRange.endExclusiveIso);
   }
 
   const paginatedQuery = input.filters.metric

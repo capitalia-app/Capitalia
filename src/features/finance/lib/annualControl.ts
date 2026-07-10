@@ -16,6 +16,11 @@ import {
   matchesMetricFilter,
   type FinancialMetric
 } from '@/features/finance/lib/financialMetrics';
+import {
+  getFinancialMonthIndex,
+  getFinancialYear,
+  getYearRange
+} from '@/features/finance/lib/financialPeriods';
 import type { MovementType } from '@/features/finance/lib/import/types';
 import { supabase } from '@/shared/lib/supabase';
 
@@ -264,7 +269,7 @@ function normalizeTransactions(input: {
       : null;
     const movementType =
       transaction.movement_type ?? fallbackMovementType(transaction.direction);
-    const month = new Date(transaction.occurred_at).getUTCMonth() as AnnualMonthIndex;
+    const month = getFinancialMonthIndex(transaction.occurred_at) as AnnualMonthIndex;
     const categoryName = category?.name ?? null;
     const accountName = account ? getAccountDisplayName(account) : 'Cuenta';
 
@@ -810,6 +815,7 @@ async function getYearTransactions(workspaceId: string, year: number) {
     throw new Error('Supabase no esta configurado.');
   }
 
+  const range = getYearRange(year);
   const { data, error } = await supabase
     .from('transactions')
     .select(
@@ -817,8 +823,8 @@ async function getYearTransactions(workspaceId: string, year: number) {
     )
     .eq('workspace_id', workspaceId)
     .eq('status', 'posted')
-    .gte('occurred_at', `${year}-01-01T00:00:00.000Z`)
-    .lte('occurred_at', `${year}-12-31T23:59:59.999Z`)
+    .gte('occurred_at', range.startIso)
+    .lt('occurred_at', range.endExclusiveIso)
     .returns<TransactionRecord[]>();
 
   if (error) {
@@ -846,9 +852,7 @@ async function getAvailableYears(workspaceId: string) {
   }
 
   return [
-    ...new Set(
-      data.map((transaction) => new Date(transaction.occurred_at).getUTCFullYear())
-    )
+    ...new Set(data.map((transaction) => getFinancialYear(transaction.occurred_at)))
   ];
 }
 

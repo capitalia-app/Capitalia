@@ -1,5 +1,6 @@
 import { getCurrentWorkspace } from '@/features/finance/lib/accounts';
 import { findDuplicateGroups } from '@/features/finance/lib/duplicateDetection';
+import { getYearRange } from '@/features/finance/lib/financialPeriods';
 import {
   getLatestPatrimonialSnapshot,
   listFinancialContainers,
@@ -39,6 +40,7 @@ export type AuditAccountRow = {
 
 export type AuditSuspiciousMovement = {
   id: string;
+  transactionId: string;
   date: string;
   accountName: string;
   description: string;
@@ -113,6 +115,7 @@ type TransactionRecord = {
   transaction_type: string | null;
   linked_transaction_id: string | null;
   transfer_group_id: string | null;
+  manually_validated: boolean;
 };
 
 export async function getAccountingAuditSummary(year: number) {
@@ -121,12 +124,12 @@ export async function getAccountingAuditSummary(year: number) {
   }
 
   const workspace = await getCurrentWorkspace();
-  const yearStart = new Date(Date.UTC(year, 0, 1));
-  const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
+  const yearRange = getYearRange(year);
+  const yearStart = new Date(yearRange.startIso);
   const [accounts, balances, transactions, snapshot, containers] = await Promise.all([
     getAccounts(workspace.id),
     getAccountBalances(workspace.id),
-    getYearTransactions(workspace.id, yearStart, yearEnd),
+    getYearTransactions(workspace.id, yearRange),
     getLatestPatrimonialSnapshot(workspace.id),
     listFinancialContainers(workspace.id)
   ]);
@@ -196,6 +199,22 @@ export async function hideDuplicateTransaction(transactionId: string) {
   }
 }
 
+export async function recoverAuditedTransaction(transactionId: string) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const workspace = await getCurrentWorkspace();
+  const { error } = await supabase.rpc('restore_audited_transaction', {
+    p_transaction_id: transactionId,
+    p_workspace_id: workspace.id
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
 async function getAccounts(workspaceId: string) {
   if (!supabase) {
     return [];
@@ -234,7 +253,10 @@ async function getAccountBalances(workspaceId: string) {
   return data;
 }
 
-async function getYearTransactions(workspaceId: string, yearStart: Date, yearEnd: Date) {
+async function getYearTransactions(
+  workspaceId: string,
+  yearRange: ReturnType<typeof getYearRange>
+) {
   if (!supabase) {
     return [];
   }
@@ -242,12 +264,12 @@ async function getYearTransactions(workspaceId: string, yearStart: Date, yearEnd
   const { data, error } = await supabase
     .from('transactions')
     .select(
-      'id, account_id, amount, direction, occurred_at, description, category_id, movement_type, transaction_type, linked_transaction_id, transfer_group_id'
+      'id, account_id, amount, direction, occurred_at, description, category_id, movement_type, transaction_type, linked_transaction_id, transfer_group_id, manually_validated'
     )
     .eq('workspace_id', workspaceId)
     .eq('status', 'posted')
-    .gte('occurred_at', yearStart.toISOString())
-    .lte('occurred_at', yearEnd.toISOString())
+    .gte('occurred_at', yearRange.startIso)
+    .lt('occurred_at', yearRange.endExclusiveIso)
     .order('occurred_at', { ascending: true })
     .returns<TransactionRecord[]>();
 
@@ -450,9 +472,12 @@ function findSuspiciousMovements(input: {
   transactions: TransactionRecord[];
 }) {
   const suspicious: AuditSuspiciousMovement[] = [];
-  const duplicates = findPossibleDuplicateIds(input.transactions);
+  const reviewableTransactions = input.transactions.filter(
+    (transaction) => !transaction.manually_validated
+  );
+  const duplicates = findPossibleDuplicateIds(reviewableTransactions);
 
-  input.transactions.forEach((transaction) => {
+  reviewableTransactions.forEach((transaction) => {
     const accountName = input.accountsById.get(transaction.account_id)?.name ?? 'Cuenta';
 
     if (!transaction.category_id) {
@@ -507,7 +532,8 @@ function mapSuspicious(
     description: transaction.description,
     direction: transaction.direction,
     id: `${transaction.id}-${reason}`,
-    reason
+    reason,
+    transactionId: transaction.id
   } satisfies AuditSuspiciousMovement;
 }
 
@@ -537,15 +563,17 @@ function findExistingDuplicateGroups(input: {
   transactions: TransactionRecord[];
 }) {
   return findDuplicateGroups(
-    input.transactions.map((transaction) => ({
-      accountId: transaction.account_id,
-      accountName: input.accountsById.get(transaction.account_id)?.name ?? 'Cuenta',
-      amount: Number(transaction.amount),
-      date: transaction.occurred_at.slice(0, 10),
-      description: transaction.description,
-      direction: transaction.direction,
-      id: transaction.id
-    }))
+    input.transactions
+      .filter((transaction) => !transaction.manually_validated)
+      .map((transaction) => ({
+        accountId: transaction.account_id,
+        accountName: input.accountsById.get(transaction.account_id)?.name ?? 'Cuenta',
+        amount: Number(transaction.amount),
+        date: transaction.occurred_at.slice(0, 10),
+        description: transaction.description,
+        direction: transaction.direction,
+        id: transaction.id
+      }))
   ).map((group) => ({
     duplicates: group.duplicates.map(mapAuditDuplicateTransaction),
     primary: mapAuditDuplicateTransaction(group.primary)

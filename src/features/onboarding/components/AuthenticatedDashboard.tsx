@@ -20,8 +20,10 @@ import {
 import {
   getAccountingAuditSummary,
   hideDuplicateTransaction,
+  recoverAuditedTransaction,
   type AccountingAuditSummary
 } from '@/features/finance/lib/audit';
+import { getMonthRange } from '@/features/finance/lib/financialPeriods';
 import {
   getCurrentWorkspace,
   type FinancialAccount,
@@ -220,14 +222,13 @@ export function AuthenticatedDashboard({
   }
 
   function handleOpenMovementsFromCell(target: AnnualCellTarget) {
-    const monthStart = new Date(Date.UTC(target.year, target.month, 1));
-    const monthEnd = new Date(Date.UTC(target.year, target.month + 1, 0));
+    const monthRange = getMonthRange(target.year, target.month);
 
     setMovementInitialFilters({
       accountId: '',
       categoryId: target.categoryId ?? '',
-      dateFrom: formatDateInput(monthStart),
-      dateTo: formatDateInput(monthEnd),
+      dateFrom: monthRange.startDate,
+      dateTo: monthRange.endDate,
       metric: target.metric,
       movementType: target.movementType,
       search: target.search ?? ''
@@ -334,7 +335,15 @@ export function AuthenticatedDashboard({
   }
 
   if (activeSection === 'audit') {
-    sectionContent = <AuditPanel selectedYear={selectedYear} />;
+    sectionContent = (
+      <AuditPanel
+        selectedYear={selectedYear}
+        onRecovered={(message) => {
+          setToastMessage(message);
+          void loadDashboard();
+        }}
+      />
+    );
   }
 
   if (activeSection === 'snapshot') {
@@ -1450,7 +1459,13 @@ function SavingsPanel({
   );
 }
 
-function AuditPanel({ selectedYear }: { selectedYear: number }) {
+function AuditPanel({
+  selectedYear,
+  onRecovered
+}: {
+  selectedYear: number;
+  onRecovered: (message: string) => void;
+}) {
   const [audit, setAudit] = useState<AccountingAuditSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1585,9 +1600,19 @@ function AuditPanel({ selectedYear }: { selectedYear: number }) {
       <AuditContainersSection audit={audit} />
       <AuditDuplicateGroupsSection
         audit={audit}
+        onRecovered={(message) => {
+          onRecovered(message);
+          setReloadToken((currentToken) => currentToken + 1);
+        }}
         onHidden={() => setReloadToken((currentToken) => currentToken + 1)}
       />
-      <AuditSuspiciousTable audit={audit} />
+      <AuditSuspiciousTable
+        audit={audit}
+        onRecovered={(message) => {
+          onRecovered(message);
+          setReloadToken((currentToken) => currentToken + 1);
+        }}
+      />
 
       <section className="annual-table-card audit-card">
         <div className="section-heading annual-table-heading">
@@ -1726,12 +1751,15 @@ function AuditContainersSection({ audit }: { audit: AccountingAuditSummary }) {
 
 function AuditDuplicateGroupsSection({
   audit,
-  onHidden
+  onHidden,
+  onRecovered
 }: {
   audit: AccountingAuditSummary;
   onHidden: () => void;
+  onRecovered: (message: string) => void;
 }) {
   const [isHiding, setIsHiding] = useState<string | null>(null);
+  const [isRecovering, setIsRecovering] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1748,6 +1776,32 @@ function AuditDuplicateGroupsSection({
       setError(getErrorMessage(hideError));
     } finally {
       setIsHiding(null);
+    }
+  }
+
+  async function handleRecover(transactionId: string) {
+    const confirmed = window.confirm(
+      '¿Recuperar este movimiento? Volvera a incluirse en los calculos y resumenes.'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsRecovering(transactionId);
+    setMessage(null);
+    setError(null);
+
+    try {
+      await recoverAuditedTransaction(transactionId);
+      const successMessage =
+        'Movimiento recuperado. Ya vuelve a contar en tus saldos y resumenes.';
+      setMessage(successMessage);
+      onRecovered(successMessage);
+    } catch (recoverError) {
+      setError(getErrorMessage(recoverError));
+    } finally {
+      setIsRecovering(null);
     }
   }
 
@@ -1785,13 +1839,23 @@ function AuditDuplicateGroupsSection({
                   </span>
                   <button
                     className="text-link"
-                    disabled={isHiding === duplicate.id}
+                    disabled={isHiding === duplicate.id || isRecovering === duplicate.id}
                     onClick={() => void handleHideDuplicate(duplicate.id)}
                     type="button"
                   >
                     {isHiding === duplicate.id
                       ? 'Ocultando...'
                       : 'Marcar duplicado y ocultar'}
+                  </button>
+                  <button
+                    className="text-link"
+                    disabled={isRecovering === duplicate.id || isHiding === duplicate.id}
+                    onClick={() => void handleRecover(duplicate.id)}
+                    type="button"
+                  >
+                    {isRecovering === duplicate.id
+                      ? 'Recuperando...'
+                      : 'Recuperar movimiento'}
                   </button>
                 </div>
               ))}
@@ -1808,7 +1872,43 @@ function AuditDuplicateGroupsSection({
   );
 }
 
-function AuditSuspiciousTable({ audit }: { audit: AccountingAuditSummary }) {
+function AuditSuspiciousTable({
+  audit,
+  onRecovered
+}: {
+  audit: AccountingAuditSummary;
+  onRecovered: (message: string) => void;
+}) {
+  const [isRecovering, setIsRecovering] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleRecover(transactionId: string) {
+    const confirmed = window.confirm(
+      '¿Recuperar este movimiento? Volvera a incluirse en los calculos y resumenes.'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsRecovering(transactionId);
+    setMessage(null);
+    setError(null);
+
+    try {
+      await recoverAuditedTransaction(transactionId);
+      const successMessage =
+        'Movimiento recuperado. Ya vuelve a contar en tus saldos y resumenes.';
+      setMessage(successMessage);
+      onRecovered(successMessage);
+    } catch (recoverError) {
+      setError(getErrorMessage(recoverError));
+    } finally {
+      setIsRecovering(null);
+    }
+  }
+
   return (
     <section className="annual-table-card audit-card">
       <div className="section-heading annual-table-heading">
@@ -1816,6 +1916,8 @@ function AuditSuspiciousTable({ audit }: { audit: AccountingAuditSummary }) {
         <h2>Movimientos sospechosos</h2>
         <span>{audit.suspiciousMovements.length} hallazgos</span>
       </div>
+      {message ? <p className="auth-message auth-message--success">{message}</p> : null}
+      {error ? <p className="auth-message auth-message--error">{error}</p> : null}
       {audit.suspiciousMovements.length > 0 ? (
         <div className="annual-table-scroll">
           <table className="annual-table audit-table">
@@ -1826,6 +1928,7 @@ function AuditSuspiciousTable({ audit }: { audit: AccountingAuditSummary }) {
                 <th>Descripcion</th>
                 <th>Importe</th>
                 <th>Motivo</th>
+                <th>Accion</th>
               </tr>
             </thead>
             <tbody>
@@ -1843,6 +1946,18 @@ function AuditSuspiciousTable({ audit }: { audit: AccountingAuditSummary }) {
                     )}
                   </td>
                   <td>{movement.reason}</td>
+                  <td>
+                    <button
+                      className="text-link"
+                      disabled={isRecovering === movement.transactionId}
+                      onClick={() => void handleRecover(movement.transactionId)}
+                      type="button"
+                    >
+                      {isRecovering === movement.transactionId
+                        ? 'Recuperando...'
+                        : 'Recuperar movimiento'}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -5581,10 +5696,6 @@ function formatDate(date: string) {
     month: 'short',
     year: 'numeric'
   }).format(new Date(date));
-}
-
-function formatDateInput(date: Date) {
-  return date.toISOString().slice(0, 10);
 }
 
 function formatPercentage(value: number) {

@@ -8,6 +8,10 @@ import {
   type PatrimonialSnapshot,
   type PatrimonyAsset
 } from '@/features/finance/lib/snapshots';
+import {
+  getSupabasePageRange,
+  hasMoreSupabasePages
+} from '@/shared/lib/supabasePagination';
 import { supabase } from '@/shared/lib/supabase';
 
 export type AuditAccountKind = 'cash' | 'investment_platform' | 'debt' | 'other';
@@ -261,23 +265,38 @@ async function getYearTransactions(
     return [];
   }
 
-  const { data, error } = await supabase
-    .from('transactions')
-    .select(
-      'id, account_id, amount, direction, occurred_at, description, category_id, movement_type, transaction_type, linked_transaction_id, transfer_group_id, manually_validated'
-    )
-    .eq('workspace_id', workspaceId)
-    .eq('status', 'posted')
-    .gte('occurred_at', yearRange.startIso)
-    .lt('occurred_at', yearRange.endExclusiveIso)
-    .order('occurred_at', { ascending: true })
-    .returns<TransactionRecord[]>();
+  const transactions: TransactionRecord[] = [];
+  let pageIndex = 0;
 
-  if (error) {
-    throw error;
+  while (true) {
+    const pageRange = getSupabasePageRange(pageIndex);
+    const { data, error } = await supabase
+      .from('transactions')
+      .select(
+        'id, account_id, amount, direction, occurred_at, description, category_id, movement_type, transaction_type, linked_transaction_id, transfer_group_id, manually_validated'
+      )
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'posted')
+      .gte('occurred_at', yearRange.startIso)
+      .lt('occurred_at', yearRange.endExclusiveIso)
+      .order('occurred_at', { ascending: true })
+      .range(pageRange.from, pageRange.to)
+      .returns<TransactionRecord[]>();
+
+    if (error) {
+      throw error;
+    }
+
+    transactions.push(...data);
+
+    if (!hasMoreSupabasePages(data.length)) {
+      break;
+    }
+
+    pageIndex += 1;
   }
 
-  return data;
+  return transactions;
 }
 
 function buildAuditAccountRow(input: {

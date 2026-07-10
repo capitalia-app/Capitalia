@@ -22,6 +22,10 @@ import {
   getYearRange
 } from '@/features/finance/lib/financialPeriods';
 import type { MovementType } from '@/features/finance/lib/import/types';
+import {
+  getSupabasePageRange,
+  hasMoreSupabasePages
+} from '@/shared/lib/supabasePagination';
 import { supabase } from '@/shared/lib/supabase';
 
 export type AnnualMonthIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
@@ -816,22 +820,38 @@ async function getYearTransactions(workspaceId: string, year: number) {
   }
 
   const range = getYearRange(year);
-  const { data, error } = await supabase
-    .from('transactions')
-    .select(
-      'id, account_id, amount, currency, direction, occurred_at, description, category_id, movement_type, linked_transaction_id, transaction_type'
-    )
-    .eq('workspace_id', workspaceId)
-    .eq('status', 'posted')
-    .gte('occurred_at', range.startIso)
-    .lt('occurred_at', range.endExclusiveIso)
-    .returns<TransactionRecord[]>();
+  const transactions: TransactionRecord[] = [];
+  let pageIndex = 0;
 
-  if (error) {
-    throw error;
+  while (true) {
+    const pageRange = getSupabasePageRange(pageIndex);
+    const { data, error } = await supabase
+      .from('transactions')
+      .select(
+        'id, account_id, amount, currency, direction, occurred_at, description, category_id, movement_type, linked_transaction_id, transaction_type'
+      )
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'posted')
+      .gte('occurred_at', range.startIso)
+      .lt('occurred_at', range.endExclusiveIso)
+      .order('occurred_at', { ascending: true })
+      .range(pageRange.from, pageRange.to)
+      .returns<TransactionRecord[]>();
+
+    if (error) {
+      throw error;
+    }
+
+    transactions.push(...data);
+
+    if (!hasMoreSupabasePages(data.length)) {
+      break;
+    }
+
+    pageIndex += 1;
   }
 
-  return data;
+  return transactions;
 }
 
 async function getAvailableYears(workspaceId: string) {
@@ -839,20 +859,37 @@ async function getAvailableYears(workspaceId: string) {
     throw new Error('Supabase no esta configurado.');
   }
 
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('occurred_at')
-    .eq('workspace_id', workspaceId)
-    .eq('status', 'posted')
-    .order('occurred_at', { ascending: false })
-    .returns<{ occurred_at: string }[]>();
+  const transactions: { occurred_at: string }[] = [];
+  let pageIndex = 0;
 
-  if (error) {
-    throw error;
+  while (true) {
+    const pageRange = getSupabasePageRange(pageIndex);
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('occurred_at')
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'posted')
+      .order('occurred_at', { ascending: false })
+      .range(pageRange.from, pageRange.to)
+      .returns<{ occurred_at: string }[]>();
+
+    if (error) {
+      throw error;
+    }
+
+    transactions.push(...data);
+
+    if (!hasMoreSupabasePages(data.length)) {
+      break;
+    }
+
+    pageIndex += 1;
   }
 
   return [
-    ...new Set(data.map((transaction) => getFinancialYear(transaction.occurred_at)))
+    ...new Set(
+      transactions.map((transaction) => getFinancialYear(transaction.occurred_at))
+    )
   ];
 }
 

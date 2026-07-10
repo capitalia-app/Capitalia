@@ -487,10 +487,8 @@ function buildVeramarSummary(transactions: AnnualTransaction[], year: number) {
     )
   ];
   const monthlyIncome = sumMonthly(incomeTransactions);
-  const monthlyExpenses = sumMonthly(expenseTransactions);
-  const monthlyBalance = monthlyIncome.map(
-    (income, month) => income - (monthlyExpenses[month] ?? 0)
-  );
+  const monthlyExpenses = sumMonthlyAbsolute(expenseTransactions);
+  const monthlyBalance = calculateVeramarMonthlyBalance(monthlyIncome, monthlyExpenses);
 
   return {
     expenseRows,
@@ -502,6 +500,15 @@ function buildVeramarSummary(transactions: AnnualTransaction[], year: number) {
     totalExpenses: sum(monthlyExpenses),
     totalIncome: sum(monthlyIncome)
   } satisfies VeramarSummary;
+}
+
+export function calculateVeramarMonthlyBalance(
+  monthlyIncome: number[],
+  monthlyExpenses: number[]
+) {
+  return monthlyIncome.map(
+    (income, month) => income - Math.abs(monthlyExpenses[month] ?? 0)
+  );
 }
 
 function buildSavingsSummary(

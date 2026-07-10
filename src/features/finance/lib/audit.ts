@@ -93,6 +93,13 @@ export type AuditDuplicateTransaction = {
   direction: 'inflow' | 'outflow';
 };
 
+export type AuditRecoveryType = 'duplicate' | 'suspicious';
+
+type AuditRecoverySupabaseError = {
+  code?: string;
+  message?: string;
+};
+
 type AccountRecord = {
   id: string;
   name: string;
@@ -203,20 +210,57 @@ export async function hideDuplicateTransaction(transactionId: string) {
   }
 }
 
-export async function recoverAuditedTransaction(transactionId: string) {
+export async function recoverAuditedMovement(input: {
+  auditType: AuditRecoveryType;
+  movementId: string;
+}) {
   if (!supabase) {
     throw new Error('Supabase no esta configurado.');
   }
 
-  const workspace = await getCurrentWorkspace();
-  const { error } = await supabase.rpc('restore_audited_transaction', {
-    p_transaction_id: transactionId,
-    p_workspace_id: workspace.id
-  });
-
-  if (error) {
-    throw error;
+  if (!input.movementId.trim()) {
+    throw new Error('No se pudo identificar el movimiento a recuperar.');
   }
+
+  const workspace = await getCurrentWorkspace();
+  const payload = {
+    p_transaction_id: input.movementId,
+    p_workspace_id: workspace.id
+  };
+  const recoveryResponse = (await supabase.rpc(
+    'restore_audited_transaction',
+    payload
+  )) as { error: AuditRecoverySupabaseError | null };
+  const recoveryError = recoveryResponse.error;
+
+  if (recoveryError) {
+    if (import.meta.env.DEV) {
+      console.error('Recover audited movement failed', {
+        auditType: input.auditType,
+        error: recoveryError,
+        movementId: input.movementId,
+        payload
+      });
+    }
+
+    throw new Error(getAuditRecoveryErrorMessage(recoveryError));
+  }
+}
+
+export function getAuditRecoveryErrorMessage(error: AuditRecoverySupabaseError) {
+  if (error.code === '42501' || error.message?.includes('not allowed')) {
+    return 'No tienes permisos para recuperar este movimiento.';
+  }
+
+  if (error.code === 'P0002' || error.message?.includes('transaction not found')) {
+    return 'El movimiento ya no existe o ha cambiado.';
+  }
+
+  if (error.code === 'P0001' || error.message?.includes('profile not found')) {
+    return 'No se pudo confirmar tu perfil de usuario.';
+  }
+
+  return 'No se pudo recuperar el movimiento. Vuelve a intentarlo.';
 }
 
 async function getAccounts(workspaceId: string) {
@@ -492,7 +536,7 @@ function findSuspiciousMovements(input: {
 }) {
   const suspicious: AuditSuspiciousMovement[] = [];
   const reviewableTransactions = input.transactions.filter(
-    (transaction) => !transaction.manually_validated
+    (transaction) => !isAuditDetectionProtected(transaction)
   );
   const duplicates = findPossibleDuplicateIds(reviewableTransactions);
 
@@ -583,7 +627,7 @@ function findExistingDuplicateGroups(input: {
 }) {
   return findDuplicateGroups(
     input.transactions
-      .filter((transaction) => !transaction.manually_validated)
+      .filter((transaction) => !isAuditDetectionProtected(transaction))
       .map((transaction) => ({
         accountId: transaction.account_id,
         accountName: input.accountsById.get(transaction.account_id)?.name ?? 'Cuenta',
@@ -597,6 +641,12 @@ function findExistingDuplicateGroups(input: {
     duplicates: group.duplicates.map(mapAuditDuplicateTransaction),
     primary: mapAuditDuplicateTransaction(group.primary)
   }));
+}
+
+export function isAuditDetectionProtected(transaction: {
+  manually_validated?: boolean | null;
+}) {
+  return transaction.manually_validated === true;
 }
 
 function mapAuditDuplicateTransaction(transaction: {

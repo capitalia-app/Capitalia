@@ -20,7 +20,7 @@ import {
 import {
   getAccountingAuditSummary,
   hideDuplicateTransaction,
-  recoverAuditedTransaction,
+  recoverAuditedMovement,
   type AccountingAuditSummary
 } from '@/features/finance/lib/audit';
 import { getMonthRange } from '@/features/finance/lib/financialPeriods';
@@ -1793,7 +1793,10 @@ function AuditDuplicateGroupsSection({
     setError(null);
 
     try {
-      await recoverAuditedTransaction(transactionId);
+      await recoverAuditedMovement({
+        auditType: 'duplicate',
+        movementId: transactionId
+      });
       const successMessage =
         'Movimiento recuperado. Ya vuelve a contar en tus saldos y resumenes.';
       setMessage(successMessage);
@@ -1897,7 +1900,10 @@ function AuditSuspiciousTable({
     setError(null);
 
     try {
-      await recoverAuditedTransaction(transactionId);
+      await recoverAuditedMovement({
+        auditType: 'suspicious',
+        movementId: transactionId
+      });
       const successMessage =
         'Movimiento recuperado. Ya vuelve a contar en tus saldos y resumenes.';
       setMessage(successMessage);

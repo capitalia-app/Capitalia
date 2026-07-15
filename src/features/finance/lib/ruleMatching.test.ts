@@ -4,6 +4,7 @@ import {
   deriveRuleKeyword,
   findBestRuleMatch,
   normalizeRuleText,
+  normalizeStableRuleText,
   shouldApplyRuleToPendingTransaction,
   type RuleScope
 } from '@/features/finance/lib/ruleMatching';
@@ -49,6 +50,48 @@ describe('rule matching', () => {
     ).toBe('fund');
   });
 
+  it('derives the same learned rule for prepaid card top-ups with variable numbers', () => {
+    const firstDescription = 'Recarga de tarjetas prepago 4918500417940956 01827013 416';
+    const secondDescription = 'Recarga de tarjetas prepago 4918500417940956 01827013 214';
+    const keyword = deriveRuleKeyword(firstDescription);
+
+    expect(keyword).toBe('recarga tarjetas prepago');
+    expect(deriveRuleKeyword(secondDescription)).toBe(keyword);
+    expect(
+      findBestRuleMatch([createRule(keyword, 'shopping', 25)], secondDescription)
+        ?.categoryId
+    ).toBe('shopping');
+  });
+
+  it('matches the same petrol station despite card operation references', () => {
+    const keyword = deriveRuleKeyword('Eess fuengirola petrol Pago con tarjeta');
+
+    expect(keyword).toBe('eess fuengirola petrol');
+    expect(
+      normalizeStableRuleText('EESS FUENGIROLA PETROL 00392817 COMPRA TARJETA')
+    ).toBe('eess fuengirola petrol');
+    expect(
+      findBestRuleMatch(
+        [createRule(keyword, 'transport', 25)],
+        'EESS FUENGIROLA PETROL 00392817 COMPRA TARJETA'
+      )?.categoryId
+    ).toBe('transport');
+  });
+
+  it('does not apply a concrete petrol station rule to a different station', () => {
+    expect(
+      findBestRuleMatch(
+        [createRule('eess fuengirola petrol', 'transport', 25)],
+        'EESS MALAGA PETROL 00392817 COMPRA TARJETA'
+      )
+    ).toBeNull();
+  });
+
+  it('does not create learned rules from empty or overly generic card text', () => {
+    expect(deriveRuleKeyword('Pago con tarjeta 00392817')).toBe('');
+    expect(deriveRuleKeyword('COMPRA TARJETA REF 123456 AUTORIZACION 789')).toBe('');
+  });
+
   it('prioritizes manual and more specific rules over generic ones', () => {
     expect(
       findBestRuleMatch(
@@ -56,6 +99,18 @@ describe('rule matching', () => {
         'Aportacion Fidelity S&P 500 Index P AC'
       )?.categoryId
     ).toBe('fund-sp500');
+  });
+
+  it('prioritizes the most specific stable rule when several match', () => {
+    expect(
+      findBestRuleMatch(
+        [
+          createRule('petrol', 'generic-petrol', 60),
+          createRule('eess fuengirola petrol', 'fuengirola-petrol', 25)
+        ],
+        'EESS FUENGIROLA PETROL 00392817 COMPRA TARJETA'
+      )?.categoryId
+    ).toBe('fuengirola-petrol');
   });
 
   it('can use account context without blocking global rules', () => {

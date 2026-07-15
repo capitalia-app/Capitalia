@@ -2196,10 +2196,13 @@ function MovementsPanel({
         workspaceId: summary.workspace.id
       });
       if (editState.rememberRule) {
+        const ruleLabel = result.learnedRuleKeyword
+          ? `Regla automatica guardada: "${result.learnedRuleKeyword}". `
+          : '';
         setLocalStatus(
           result.appliedRuleCount > 0
-            ? `Regla guardada. Se ha aplicado a ${result.appliedRuleCount} movimientos pendientes.`
-            : 'Regla guardada. Se aplicara a futuros movimientos equivalentes.'
+            ? `${ruleLabel}Se ha aplicado a ${result.appliedRuleCount} movimientos pendientes.`
+            : `${ruleLabel}Se aplicara a futuros movimientos equivalentes.`
         );
       }
       setSelectedMovement(null);

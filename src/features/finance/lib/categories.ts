@@ -9,6 +9,7 @@ import {
   getRuleMatchResult,
   getRuleSpecificity,
   normalizeRuleText,
+  normalizeStableRuleText,
   shouldApplyRuleToPendingTransaction
 } from '@/features/finance/lib/ruleMatching';
 import { supabase } from '@/shared/lib/supabase';
@@ -255,32 +256,42 @@ export async function rememberCategoryRule(input: {
 
   const keyword = input.keyword.trim();
   const normalizedKeyword = normalizeRuleText(keyword);
+  const stableKeyword = normalizeStableRuleText(keyword);
 
-  if (!normalizedKeyword) {
+  if (!normalizedKeyword || !stableKeyword) {
     return null;
   }
 
   let existingQuery = supabase
     .from('category_rules')
-    .select('id')
+    .select('id, keyword, normalized_keyword')
     .eq('workspace_id', input.workspaceId)
-    .eq('category_id', input.categoryId)
-    .eq('normalized_keyword', normalizedKeyword)
-    .limit(1);
+    .eq('category_id', input.categoryId);
 
   existingQuery = input.accountId
     ? existingQuery.eq('account_id', input.accountId)
     : existingQuery.is('account_id', null);
 
   const { data: existingRules, error: existingError } =
-    await existingQuery.returns<{ id: string }[]>();
+    await existingQuery.returns<
+      { id: string; keyword: string; normalized_keyword: string | null }[]
+    >();
 
   if (existingError) {
     throw existingError;
   }
 
-  if (existingRules[0]) {
-    return existingRules[0].id;
+  const equivalentRule = existingRules.find((rule) => {
+    const existingNormalized = normalizeRuleText(rule.normalized_keyword ?? rule.keyword);
+    const existingStable = normalizeStableRuleText(
+      rule.normalized_keyword ?? rule.keyword
+    );
+
+    return existingNormalized === normalizedKeyword || existingStable === stableKeyword;
+  });
+
+  if (equivalentRule) {
+    return equivalentRule.id;
   }
 
   const { data, error } = await supabase
@@ -290,7 +301,7 @@ export async function rememberCategoryRule(input: {
       category_id: input.categoryId,
       keyword,
       match_type: 'contains',
-      normalized_keyword: normalizedKeyword,
+      normalized_keyword: stableKeyword,
       priority: input.priority,
       specificity: getRuleSpecificity(keyword),
       workspace_id: input.workspaceId
@@ -345,7 +356,7 @@ export async function applyCategoryRuleToExistingTransactions(input: {
     id: 'pending-rule',
     keyword,
     movementType: category.movementType,
-    normalizedKeyword: normalizeRuleText(keyword),
+    normalizedKeyword: normalizeStableRuleText(keyword) || normalizeRuleText(keyword),
     priority: 25,
     specificity: getRuleSpecificity(keyword),
     workspaceId: input.workspaceId

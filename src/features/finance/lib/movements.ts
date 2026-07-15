@@ -304,11 +304,11 @@ export async function updateMovement(input: {
         workspaceId: input.workspaceId
       });
 
-      return { appliedRuleCount: appliedCount };
+      return { appliedRuleCount: appliedCount, learnedRuleKeyword: keyword };
     }
   }
 
-  return { appliedRuleCount: 0 };
+  return { appliedRuleCount: 0, learnedRuleKeyword: null };
 }
 
 async function ensureTransferCounterpart(input: {

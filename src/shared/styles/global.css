@@ -1574,6 +1574,16 @@ h1 {
   padding-top: 0;
 }
 
+.dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.compact-actions {
+  margin: -8px 0 18px;
+}
+
 .asset-editor-form {
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }

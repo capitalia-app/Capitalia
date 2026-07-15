@@ -21,6 +21,7 @@ import type {
 } from '@/features/finance/lib/import/types';
 import { normalizeHeader } from '@/features/finance/lib/import/utils';
 import {
+  ensureCashFinancialContainer,
   listFinancialContainers,
   type ContainerType,
   type FinancialContainer
@@ -84,6 +85,9 @@ type ExistingHashRecord = {
 };
 
 type ExistingComparableTransaction = ComparableTransaction & {
+  accountName: string;
+  fingerprint: string | null;
+  importHash: string | null;
   id: string;
   occurredAt: string;
 };
@@ -148,6 +152,7 @@ type TransferLinkPlan = {
 
 export async function getCsvImportContext() {
   const workspace = await getCurrentWorkspace();
+  await ensureCashFinancialContainer(workspace.id);
   const containers = (await listFinancialContainers(workspace.id))
     .filter((container) => container.id !== 'unassigned')
     .map(mapContainerToImportOption);
@@ -192,10 +197,41 @@ export async function analyzeImportPreview(params: {
     transactions: params.transactions,
     workspaceId: params.workspaceId
   });
+  const strictExistingMatches = await getStrictExistingHashMatches({
+    accountId,
+    transactions: params.transactions,
+    workspaceId: params.workspaceId
+  });
   const seenNewTransactions: ComparableTransaction[] = [];
-  const items = params.transactions.map((transaction) => {
+  const transactionsWithImportHash = await Promise.all(
+    params.transactions.map(async (transaction) => ({
+      importHash: await createImportHash({
+        accountId,
+        amount: transaction.amount,
+        date: transaction.date,
+        description: transaction.description,
+        workspaceId: params.workspaceId
+      }),
+      transaction
+    }))
+  );
+  const items = transactionsWithImportHash.map(({ importHash, transaction }) => {
+    const strictDuplicate =
+      strictExistingMatches.get(transaction.fingerprint) ??
+      strictExistingMatches.get(importHash);
+
+    if (strictDuplicate) {
+      return {
+        matchedTransaction: strictDuplicate,
+        reason: 'Duplicado exacto por fingerprint/import_hash activo',
+        status: 'duplicate',
+        transaction
+      } satisfies ImportPreviewItem;
+    }
+
     const comparableTransaction = mapImportToComparableTransaction({
       accountId,
+      importHash,
       transaction
     });
     const existingDuplicate = findEquivalentTransaction(
@@ -269,6 +305,7 @@ export async function saveCsvImport(params: {
     container: params.container,
     workspaceId: params.workspaceId
   });
+  await ensureCashFinancialContainer(params.workspaceId);
   const containers = (await listFinancialContainers(params.workspaceId))
     .filter((container) => container.id !== 'unassigned')
     .map(mapContainerToImportOption);
@@ -627,11 +664,71 @@ async function getExistingComparableTransactions(input: {
     throw error;
   }
 
-  return data.map(mapExistingToComparableTransaction);
+  return data.map((transaction) => mapExistingToComparableTransaction(transaction));
+}
+
+async function getStrictExistingHashMatches(input: {
+  workspaceId: string;
+  accountId: string;
+  transactions: ParsedCsvTransaction[];
+}) {
+  if (!supabase || input.transactions.length === 0) {
+    return new Map<string, ExistingComparableTransaction>();
+  }
+
+  const importHashes = await Promise.all(
+    input.transactions.map((transaction) =>
+      createImportHash({
+        accountId: input.accountId,
+        amount: transaction.amount,
+        date: transaction.date,
+        description: transaction.description,
+        workspaceId: input.workspaceId
+      })
+    )
+  );
+  const fingerprints = input.transactions.map((transaction) => transaction.fingerprint);
+  const { data, error } = await supabase
+    .from('transactions')
+    .select(
+      'id, account_id, amount, direction, occurred_at, description, fingerprint, import_hash'
+    )
+    .eq('workspace_id', input.workspaceId)
+    .eq('account_id', input.accountId)
+    .eq('status', 'posted')
+    .is('deleted_at', null)
+    .or(
+      [
+        `fingerprint.in.(${fingerprints.map(escapePostgrestListValue).join(',')})`,
+        `import_hash.in.(${importHashes.map(escapePostgrestListValue).join(',')})`
+      ].join(',')
+    )
+    .returns<ExistingTransactionRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  const matches = new Map<string, ExistingComparableTransaction>();
+
+  data.forEach((transaction) => {
+    const comparable = mapExistingToComparableTransaction(transaction);
+
+    if (transaction.fingerprint) {
+      matches.set(transaction.fingerprint, comparable);
+    }
+
+    if (transaction.import_hash) {
+      matches.set(transaction.import_hash, comparable);
+    }
+  });
+
+  return matches;
 }
 
 function mapImportToComparableTransaction(input: {
   accountId: string;
+  importHash?: string | null;
   transaction: ParsedCsvTransaction;
 }) {
   return {
@@ -639,32 +736,41 @@ function mapImportToComparableTransaction(input: {
     amount: input.transaction.amount,
     date: input.transaction.date,
     description: input.transaction.description,
-    direction: input.transaction.direction
+    direction: input.transaction.direction,
+    stableReference: input.importHash ?? null
   } satisfies ComparableTransaction;
 }
 
 function mapClassifiedToComparableTransaction(input: {
   accountId: string;
-  transaction: ClassifiedImportTransaction;
+  transaction: ClassifiedImportTransaction & { importHash?: string };
 }) {
   return {
     accountId: input.accountId,
     amount: input.transaction.amount,
     date: input.transaction.date,
     description: input.transaction.description,
-    direction: input.transaction.direction
+    direction: input.transaction.direction,
+    stableReference: input.transaction.importHash ?? null
   } satisfies ComparableTransaction;
 }
 
-function mapExistingToComparableTransaction(transaction: ExistingTransactionRecord) {
+function mapExistingToComparableTransaction(
+  transaction: ExistingTransactionRecord,
+  accountName = 'Cuenta'
+) {
   return {
     accountId: transaction.account_id,
+    accountName,
     amount: Number(transaction.amount),
     date: transaction.occurred_at.slice(0, 10),
     description: transaction.description,
     direction: transaction.direction,
+    fingerprint: transaction.fingerprint,
     id: transaction.id,
-    occurredAt: transaction.occurred_at
+    importHash: transaction.import_hash,
+    occurredAt: transaction.occurred_at,
+    stableReference: transaction.import_hash
   } satisfies ExistingComparableTransaction;
 }
 
@@ -682,6 +788,10 @@ function buildPreviewAnalysis<TItem extends { status: ImportDuplicateStatus }>(
     newCount: number;
     suspiciousCount: number;
   };
+}
+
+function escapePostgrestListValue(value: string) {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 async function applyAssetPurchasesToContainer(input: {

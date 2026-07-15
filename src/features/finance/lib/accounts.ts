@@ -388,6 +388,7 @@ async function getBalanceTransactions(
     .select('account_id, amount, direction, occurred_at')
     .eq('workspace_id', workspaceId)
     .eq('status', 'posted')
+    .is('deleted_at', null)
     .in('account_id', accountIds);
 
   if (balancesByAccount.size > 0) {

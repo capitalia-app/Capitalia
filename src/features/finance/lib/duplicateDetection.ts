@@ -5,6 +5,7 @@ export type ComparableTransaction = {
   date: string;
   description: string;
   direction: 'inflow' | 'outflow';
+  stableReference?: string | null;
 };
 
 export type DuplicateMatch = {
@@ -99,6 +100,12 @@ export function getDuplicateScore(
   }
 
   const descriptionScore = getDescriptionSimilarity(left.description, right.description);
+  const sameStableReference = hasSameStableReference(left, right);
+
+  if (dateDistance > 0 && !sameStableReference) {
+    return descriptionScore >= 0.78 ? suspiciousSimilarityThreshold : 0;
+  }
+
   const dateScore = dateDistance === 0 ? 1 : dateDistance === 1 ? 0.92 : 0.84;
 
   return descriptionScore * 0.72 + dateScore * 0.28;
@@ -139,6 +146,17 @@ function getMatchReason(left: ComparableTransaction, right: ComparableTransactio
     days === 0 ? 'misma fecha' : `fecha cercana (${days} dia${days === 1 ? '' : 's'})`;
 
   return `${dateReason}, mismo importe y descripcion similar`;
+}
+
+function hasSameStableReference(
+  left: ComparableTransaction,
+  right: ComparableTransaction
+) {
+  return Boolean(
+    left.stableReference &&
+    right.stableReference &&
+    left.stableReference === right.stableReference
+  );
 }
 
 function getDescriptionSimilarity(left: string, right: string) {

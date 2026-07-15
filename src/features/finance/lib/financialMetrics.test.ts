@@ -17,7 +17,8 @@ describe('financial metrics', () => {
   const accounts = [
     createAccount('bbva', 'Cuenta principal', 'checking', 'BBVA'),
     createAccount('myinvestor', 'MyInvestor', 'brokerage', 'MyInvestor'),
-    createAccount('ledger', 'Ledger', 'crypto_wallet', 'Ledger')
+    createAccount('ledger', 'Ledger', 'crypto_wallet', 'Ledger'),
+    createAccount('cash', 'Efectivo', 'cash', 'Manual')
   ];
 
   it('uses the same April savings definition for dashboard and movement filters', () => {
@@ -166,6 +167,32 @@ describe('financial metrics', () => {
     expect(
       sumMetricTransactions(transactions, buildMetricFilter('expense', accounts))
     ).toBe(-60);
+  });
+
+  it('treats ATM withdrawals as internal transfers to cash, not monthly expenses', () => {
+    const transactions = [
+      createTransaction('bbva', 'BBVA', 1000, 'outflow', 'transfer', 'Retirada cajero', {
+        linkedTransactionId: 'cash-in',
+        transactionType: 'transfer'
+      }),
+      createTransaction('cash', 'Efectivo', 1000, 'inflow', 'transfer', 'Efectivo', {
+        linkedTransactionId: 'bbva-out',
+        transactionType: 'transfer'
+      })
+    ];
+    const expenseTotal = sumMetricTransactions(
+      transactions,
+      buildMetricFilter('expense', accounts)
+    );
+    const accountDelta = transactions.reduce(
+      (total, transaction) =>
+        total +
+        (transaction.direction === 'inflow' ? transaction.amount : -transaction.amount),
+      0
+    );
+
+    expect(expenseTotal).toBe(0);
+    expect(accountDelta).toBe(0);
   });
 
   it('identifies Veramar income and expenses from category-aware transactions', () => {

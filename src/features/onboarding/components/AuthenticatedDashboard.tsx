@@ -47,6 +47,7 @@ import {
 } from '@/features/finance/lib/dashboard';
 import type { MovementType } from '@/features/finance/lib/import/types';
 import {
+  createManualMovement,
   getMovementFiltersContext,
   listMovements,
   updateMovement,
@@ -2078,6 +2079,7 @@ function MovementsPanel({
   const [filters, setFilters] = useState<MovementFilters>(defaultMovementFilters);
   const [selectedMovement, setSelectedMovement] = useState<MoneyMovement | null>(null);
   const [editState, setEditState] = useState<MovementEditState | null>(null);
+  const [manualState, setManualState] = useState<ManualMovementState | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(getDefaultMovementsPageSize);
   const [totalMovements, setTotalMovements] = useState(0);
@@ -2160,16 +2162,38 @@ function MovementsPanel({
   }
 
   function openMovementEditor(movement: MoneyMovement) {
+    const suggestedCounterpartyAccountId =
+      movement.direction === 'outflow' &&
+      isCashWithdrawalDescription(movement.description)
+        ? getCashAccountId(accounts)
+        : '';
+
     setSelectedMovement(movement);
     setLocalStatus(null);
     setEditState({
       accountId: movement.accountId,
       categoryId: movement.categoryId ?? '',
-      counterpartyAccountId: movement.linkedAccountId ?? '',
+      counterpartyAccountId: movement.linkedAccountId ?? suggestedCounterpartyAccountId,
       isReviewed: movement.isReviewed,
       movementType: movement.movementType,
       notes: movement.notes ?? '',
       rememberRule: false
+    });
+  }
+
+  function openManualMovementEditor() {
+    setLocalStatus(null);
+    setLocalError(null);
+    setManualState({
+      accountId: accounts[0]?.id ?? '',
+      amount: '',
+      categoryId: '',
+      counterpartyAccountId: '',
+      date: new Date().toISOString().slice(0, 10),
+      description: '',
+      isReviewed: true,
+      movementType: 'expense',
+      notes: ''
     });
   }
 
@@ -2213,6 +2237,42 @@ function MovementsPanel({
     }
   }
 
+  async function handleCreateManualMovement() {
+    if (!summary || !manualState) {
+      return;
+    }
+
+    setIsSavingMovement(true);
+    setLocalError(null);
+    setLocalStatus(null);
+
+    try {
+      await createManualMovement({
+        accountId: manualState.accountId,
+        amount: parseLocalizedAmount(manualState.amount),
+        categoryId: manualState.categoryId || null,
+        counterpartyAccountId: manualState.counterpartyAccountId || null,
+        currency: summary.workspace.baseCurrency,
+        date: manualState.date,
+        description: manualState.description,
+        isReviewed: manualState.isReviewed,
+        movementType: manualState.movementType,
+        notes: manualState.notes.trim() || null,
+        workspaceId: summary.workspace.id
+      });
+      setManualState(null);
+      setPage(1);
+      setLocalStatus('Movimiento manual creado correctamente.');
+      await loadMovementContext(summary.workspace.id);
+      await loadMovementPage();
+      onUpdated();
+    } catch (createError) {
+      setLocalError(getErrorMessage(createError));
+    } finally {
+      setIsSavingMovement(false);
+    }
+  }
+
   if (isLoading) {
     return <p className="panel-status">Cargando movimientos...</p>;
   }
@@ -2235,6 +2295,15 @@ function MovementsPanel({
         <p className="eyebrow">Flujo de dinero</p>
         <h2>Movimientos</h2>
         <span>{movementsCounterLabel}</span>
+      </div>
+
+      <div className="dashboard-actions compact-actions">
+        <button className="text-link" onClick={openManualMovementEditor} type="button">
+          + Añadir movimiento
+        </button>
+        <button className="text-link" onClick={onImportMovements} type="button">
+          Importar movimientos
+        </button>
       </div>
 
       {localError ? (
@@ -2326,6 +2395,18 @@ function MovementsPanel({
           setEditState={setEditState}
         />
       ) : null}
+
+      {manualState ? (
+        <ManualMovementModal
+          accounts={accounts}
+          categories={categories}
+          isSaving={isSavingMovement}
+          onClose={() => setManualState(null)}
+          onSave={() => void handleCreateManualMovement()}
+          setState={setManualState}
+          state={manualState}
+        />
+      ) : null}
     </section>
   );
 }
@@ -2338,6 +2419,18 @@ type MovementEditState = {
   notes: string;
   isReviewed: boolean;
   rememberRule: boolean;
+};
+
+type ManualMovementState = {
+  movementType: MovementType;
+  categoryId: string;
+  accountId: string;
+  counterpartyAccountId: string;
+  date: string;
+  description: string;
+  amount: string;
+  notes: string;
+  isReviewed: boolean;
 };
 
 const defaultMovementFilters = {
@@ -2838,7 +2931,8 @@ function MovementEditorModal({
                       ...current,
                       categoryId: '',
                       counterpartyAccountId: event.target.checked
-                        ? current.counterpartyAccountId
+                        ? current.counterpartyAccountId ||
+                          getSuggestedCounterpartyAccountId(movement, accounts)
                         : '',
                       movementType: event.target.checked
                         ? 'transfer'
@@ -2868,6 +2962,268 @@ function MovementEditorModal({
       </div>
     </AppModal>
   );
+}
+
+function ManualMovementModal({
+  accounts,
+  categories,
+  isSaving,
+  onClose,
+  onSave,
+  setState,
+  state
+}: {
+  accounts: FinancialAccount[];
+  categories: TransactionCategory[];
+  isSaving: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  setState: Dispatch<SetStateAction<ManualMovementState | null>>;
+  state: ManualMovementState;
+}) {
+  const matchingCategories = categories.filter(
+    (category) => category.movementType === state.movementType
+  );
+
+  return (
+    <AppModal
+      className="movement-editor"
+      closeLabel="Cerrar nuevo movimiento"
+      contentClassName="account-form movement-editor__content"
+      eyebrow="Manual"
+      footer={
+        <>
+          <button
+            className="text-link"
+            disabled={isSaving}
+            onClick={onClose}
+            type="button"
+          >
+            Cancelar
+          </button>
+          <button
+            className="danger-button"
+            disabled={isSaving}
+            onClick={onSave}
+            type="button"
+          >
+            {isSaving ? 'Guardando...' : 'Crear movimiento'}
+          </button>
+        </>
+      }
+      onClose={onClose}
+      subtitle="No se aplica ninguna regla de importacion."
+      title="Añadir movimiento"
+    >
+      <div className="account-form__grid">
+        <label>
+          <span>Fecha</span>
+          <input
+            onChange={(event) =>
+              setState((current) =>
+                current ? { ...current, date: event.target.value } : current
+              )
+            }
+            type="date"
+            value={state.date}
+          />
+        </label>
+        <label>
+          <span>Importe</span>
+          <input
+            inputMode="decimal"
+            onChange={(event) =>
+              setState((current) =>
+                current ? { ...current, amount: event.target.value } : current
+              )
+            }
+            placeholder="1000"
+            value={state.amount}
+          />
+        </label>
+      </div>
+      <label>
+        <span>Descripcion</span>
+        <input
+          onChange={(event) =>
+            setState((current) =>
+              current ? { ...current, description: event.target.value } : current
+            )
+          }
+          placeholder="Retirada cajero"
+          value={state.description}
+        />
+      </label>
+      <label>
+        <span>Tipo</span>
+        <select
+          onChange={(event) =>
+            setState((current) =>
+              current
+                ? {
+                    ...current,
+                    categoryId: '',
+                    counterpartyAccountId:
+                      event.target.value === 'transfer'
+                        ? current.counterpartyAccountId
+                        : '',
+                    movementType: event.target.value as MovementType
+                  }
+                : current
+            )
+          }
+          value={state.movementType}
+        >
+          <option value="income">Ingreso</option>
+          <option value="expense">Gasto real</option>
+          <option value="investment">Inversion</option>
+          <option value="transfer">Transferencia interna</option>
+        </select>
+      </label>
+      <label>
+        <span>Categoria</span>
+        <select
+          onChange={(event) =>
+            setState((current) =>
+              current ? { ...current, categoryId: event.target.value } : current
+            )
+          }
+          value={state.categoryId}
+        >
+          <option value="">Sin categoria</option>
+          {matchingCategories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Cuenta / plataforma</span>
+        <select
+          onChange={(event) =>
+            setState((current) =>
+              current
+                ? {
+                    ...current,
+                    accountId: event.target.value,
+                    counterpartyAccountId:
+                      current.counterpartyAccountId === event.target.value
+                        ? ''
+                        : current.counterpartyAccountId
+                  }
+                : current
+            )
+          }
+          value={state.accountId}
+        >
+          {accounts.map((account) => (
+            <option key={account.id} value={account.id}>
+              {getFinancialAccountLabel(account)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {state.movementType === 'transfer' ? (
+        <label>
+          <span>Cuenta / plataforma destino</span>
+          <select
+            onChange={(event) =>
+              setState((current) =>
+                current
+                  ? { ...current, counterpartyAccountId: event.target.value }
+                  : current
+              )
+            }
+            value={state.counterpartyAccountId}
+          >
+            <option value="">Pendiente de emparejar</option>
+            {accounts
+              .filter((account) => account.id !== state.accountId)
+              .map((account) => (
+                <option key={account.id} value={account.id}>
+                  {getFinancialAccountLabel(account)}
+                </option>
+              ))}
+          </select>
+        </label>
+      ) : null}
+      <label>
+        <span>Notas</span>
+        <textarea
+          onChange={(event) =>
+            setState((current) =>
+              current ? { ...current, notes: event.target.value } : current
+            )
+          }
+          value={state.notes}
+        />
+      </label>
+      <div className="movement-editor__checks">
+        <label className="remember-rule">
+          <input
+            checked={state.isReviewed}
+            onChange={(event) =>
+              setState((current) =>
+                current ? { ...current, isReviewed: event.target.checked } : current
+              )
+            }
+            type="checkbox"
+          />
+          <span>Marcar como revisado</span>
+        </label>
+      </div>
+    </AppModal>
+  );
+}
+
+function getSuggestedCounterpartyAccountId(
+  movement: MoneyMovement,
+  accounts: FinancialAccount[]
+) {
+  if (
+    movement.direction === 'outflow' &&
+    isCashWithdrawalDescription(movement.description)
+  ) {
+    return getCashAccountId(accounts);
+  }
+
+  return '';
+}
+
+function getCashAccountId(accounts: FinancialAccount[]) {
+  return (
+    accounts.find((account) => account.type === 'cash')?.id ??
+    accounts.find((account) =>
+      getFinancialAccountLabel(account).toLowerCase().includes('efectivo')
+    )?.id ??
+    ''
+  );
+}
+
+function isCashWithdrawalDescription(description: string) {
+  const normalized = description
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+  return [
+    'cajero',
+    'retirada efectivo',
+    'disposicion efectivo',
+    'atm',
+    'cash withdrawal'
+  ].some((keyword) => normalized.includes(keyword));
+}
+
+function parseLocalizedAmount(value: string) {
+  const trimmed = value.trim();
+
+  if (trimmed.includes(',') && trimmed.includes('.')) {
+    return Number(trimmed.replace(/\./g, '').replace(',', '.'));
+  }
+
+  return Number(trimmed.replace(',', '.'));
 }
 
 type CategoriesPanelProps = {

@@ -25,7 +25,7 @@ describe('duplicateDetection', () => {
     ).toBe(true);
   });
 
-  it('matches movements with nearby BBVA value/operation dates', () => {
+  it('does not mark same amount and description on nearby days as a strong duplicate', () => {
     const match = findEquivalentTransaction(baseTransaction, [
       {
         ...baseTransaction,
@@ -34,7 +34,49 @@ describe('duplicateDetection', () => {
       }
     ]);
 
+    expect(match).toBeNull();
+  });
+
+  it('keeps nearby same amount and description as suspicious only', () => {
+    const match = findSuspiciousTransaction(baseTransaction, [
+      {
+        ...baseTransaction,
+        date: '2026-06-13',
+        description: 'MERCADONA COMPRA'
+      }
+    ]);
+
     expect(match?.reason).toContain('fecha cercana');
+  });
+
+  it('matches nearby dates as duplicate only with the same stable bank reference', () => {
+    const match = findEquivalentTransaction(
+      { ...baseTransaction, stableReference: 'bbva-operation-1' },
+      [
+        {
+          ...baseTransaction,
+          date: '2026-06-13',
+          description: 'MERCADONA COMPRA',
+          stableReference: 'bbva-operation-1'
+        }
+      ]
+    );
+
+    expect(match?.reason).toContain('fecha cercana');
+  });
+
+  it('allows two real cash withdrawals on consecutive days to coexist', () => {
+    const withdrawal = {
+      accountId: 'bbva-account',
+      amount: 1000,
+      date: '2026-04-10',
+      description: 'Retirada cajero BBVA',
+      direction: 'outflow'
+    } satisfies ComparableTransaction;
+
+    expect(
+      findEquivalentTransaction(withdrawal, [{ ...withdrawal, date: '2026-04-11' }])
+    ).toBeNull();
   });
 
   it('does not match different amounts', () => {

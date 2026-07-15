@@ -323,6 +323,18 @@ export function CsvImportPanel({ onBack }: CsvImportPanelProps) {
                         ? ` · existente ${formatDate(item.matchedTransaction.date)}`
                         : ''}
                     </span>
+                    {item.matchedTransaction ? (
+                      <small>
+                        Duplicado de: {formatDate(item.matchedTransaction.date)} ·{' '}
+                        {formatMoney(
+                          item.matchedTransaction.amount,
+                          item.transaction.currency
+                        )}{' '}
+                        · {item.matchedTransaction.description} ·{' '}
+                        {item.matchedTransaction.accountName} · ref{' '}
+                        {item.matchedTransaction.id.slice(0, 8)}
+                      </small>
+                    ) : null}
                   </article>
                 ))}
             </div>

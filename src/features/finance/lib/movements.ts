@@ -18,7 +18,10 @@ import {
 import { getDateInputRange } from '@/features/finance/lib/financialPeriods';
 import type { MovementType } from '@/features/finance/lib/import/types';
 import { deriveRuleKeyword } from '@/features/finance/lib/ruleMatching';
-import { listFinancialContainers } from '@/features/finance/lib/snapshots';
+import {
+  ensureCashFinancialContainer,
+  listFinancialContainers
+} from '@/features/finance/lib/snapshots';
 import { supabase } from '@/shared/lib/supabase';
 
 export type MovementReviewFilter = MovementType | 'all' | 'pending';
@@ -95,7 +98,22 @@ type EditableTransactionRecord = {
   transfer_group_id: string | null;
 };
 
+export type CreateManualMovementInput = {
+  workspaceId: string;
+  accountId: string;
+  counterpartyAccountId?: string | null;
+  categoryId: string | null;
+  amount: number;
+  currency: string;
+  date: string;
+  description: string;
+  movementType: MovementType;
+  notes: string | null;
+  isReviewed: boolean;
+};
+
 export async function getMovementFiltersContext(workspaceId: string) {
+  await ensureCashFinancialContainer(workspaceId);
   const containers = await listFinancialContainers(workspaceId);
 
   await ensureFinancialAccountsForContainers({
@@ -109,6 +127,117 @@ export async function getMovementFiltersContext(workspaceId: string) {
   ]);
 
   return { accounts, categories };
+}
+
+export async function createManualMovement(input: CreateManualMovementInput) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  validateManualMovement(input);
+
+  const transferGroupId = input.movementType === 'transfer' ? crypto.randomUUID() : null;
+  const occurredAt = `${input.date}T12:00:00.000Z`;
+  const sourceDirection: 'inflow' | 'outflow' =
+    input.movementType === 'income' ? 'inflow' : 'outflow';
+  const normalizedAmount = Math.abs(input.amount);
+  const fingerprint = [
+    'manual-transaction',
+    input.workspaceId,
+    input.accountId,
+    input.date,
+    normalizedAmount.toFixed(4),
+    input.description.trim().toLowerCase()
+  ].join('|');
+  const { data: movement, error } = await supabase
+    .from('transactions')
+    .insert({
+      account_id: input.accountId,
+      amount: normalizedAmount,
+      booked_at: occurredAt,
+      category_id: input.categoryId,
+      confidence_score: 1,
+      currency: input.currency.toUpperCase(),
+      description: input.description.trim(),
+      direction: sourceDirection,
+      fingerprint,
+      import_batch_id: null,
+      is_reviewed: input.isReviewed,
+      movement_type: input.movementType,
+      notes: input.notes,
+      occurred_at: occurredAt,
+      raw_import_record_id: null,
+      status: 'posted',
+      transaction_type: mapMovementTypeToTransactionType(input.movementType),
+      transfer_group_id: transferGroupId,
+      workspace_id: input.workspaceId
+    })
+    .select('id')
+    .single<{ id: string }>();
+
+  if (error) {
+    throw error;
+  }
+
+  if (
+    input.movementType === 'transfer' &&
+    input.counterpartyAccountId &&
+    input.counterpartyAccountId !== input.accountId
+  ) {
+    const counterpartDirection: 'inflow' | 'outflow' =
+      sourceDirection === 'inflow' ? 'outflow' : 'inflow';
+    const counterpartFingerprint = [
+      'manual-transfer-counterpart',
+      input.workspaceId,
+      movement.id,
+      input.counterpartyAccountId
+    ].join('|');
+    const { data: counterpart, error: counterpartError } = await supabase
+      .from('transactions')
+      .insert({
+        account_id: input.counterpartyAccountId,
+        amount: normalizedAmount,
+        booked_at: occurredAt,
+        category_id: null,
+        confidence_score: 1,
+        currency: input.currency.toUpperCase(),
+        description:
+          sourceDirection === 'outflow'
+            ? `Transferencia interna desde ${input.description.trim()}`
+            : `Transferencia interna hacia ${input.description.trim()}`,
+        direction: counterpartDirection,
+        fingerprint: counterpartFingerprint,
+        import_batch_id: null,
+        is_reviewed: true,
+        linked_transaction_id: movement.id,
+        movement_type: 'transfer',
+        notes: input.notes,
+        occurred_at: occurredAt,
+        raw_import_record_id: null,
+        status: 'posted',
+        transaction_type: 'transfer',
+        transfer_group_id: transferGroupId,
+        workspace_id: input.workspaceId
+      })
+      .select('id')
+      .single<{ id: string }>();
+
+    if (counterpartError) {
+      throw counterpartError;
+    }
+
+    const { error: linkError } = await supabase
+      .from('transactions')
+      .update({ linked_transaction_id: counterpart.id })
+      .eq('id', movement.id)
+      .eq('workspace_id', input.workspaceId);
+
+    if (linkError) {
+      throw linkError;
+    }
+  }
+
+  return movement.id;
 }
 
 export async function listMovements(input: {
@@ -131,6 +260,7 @@ export async function listMovements(input: {
     )
     .eq('workspace_id', input.workspaceId)
     .eq('status', 'posted')
+    .is('deleted_at', null)
     .order('occurred_at', { ascending: false });
 
   if (input.filters.search.trim()) {
@@ -446,4 +576,30 @@ function getAccountDisplayName(account: FinancialAccount) {
   }
 
   return account.name;
+}
+
+export function validateManualMovement(input: CreateManualMovementInput) {
+  if (!input.accountId) {
+    throw new Error('Selecciona una cuenta o plataforma.');
+  }
+
+  if (!input.description.trim()) {
+    throw new Error('La descripcion es obligatoria.');
+  }
+
+  if (!input.date || Number.isNaN(new Date(`${input.date}T12:00:00.000Z`).getTime())) {
+    throw new Error('La fecha no es valida.');
+  }
+
+  if (!Number.isFinite(input.amount) || input.amount <= 0) {
+    throw new Error('El importe debe ser mayor que cero.');
+  }
+
+  if (
+    input.movementType === 'transfer' &&
+    input.counterpartyAccountId &&
+    input.counterpartyAccountId === input.accountId
+  ) {
+    throw new Error('La cuenta origen y destino deben ser distintas.');
+  }
 }

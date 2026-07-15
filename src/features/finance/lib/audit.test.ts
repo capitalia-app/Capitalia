@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   getAuditRecoveryErrorMessage,
-  isAuditDetectionProtected
+  isAuditDetectionProtected,
+  isRestoredTransactionActive
 } from '@/features/finance/lib/audit';
 
 describe('audit recovery', () => {
@@ -38,5 +39,43 @@ describe('audit recovery', () => {
           'insert or update on table "transactions" violates foreign key constraint'
       })
     ).toBe('No se pudo recuperar el movimiento. Vuelve a intentarlo.');
+  });
+
+  it('accepts a fully restored transaction as active again', () => {
+    expect(
+      isRestoredTransactionActive({
+        deleted_at: null,
+        id: 'movement-1',
+        manually_validated: true,
+        status: 'posted'
+      })
+    ).toBe(true);
+  });
+
+  it('rejects partial recovery states that would leave a movement in limbo', () => {
+    expect(
+      isRestoredTransactionActive({
+        deleted_at: '2026-07-01T00:00:00.000Z',
+        id: 'movement-1',
+        manually_validated: true,
+        status: 'posted'
+      })
+    ).toBe(false);
+    expect(
+      isRestoredTransactionActive({
+        deleted_at: null,
+        id: 'movement-1',
+        manually_validated: true,
+        status: 'ignored'
+      })
+    ).toBe(false);
+    expect(
+      isRestoredTransactionActive({
+        deleted_at: null,
+        id: 'movement-1',
+        manually_validated: false,
+        status: 'posted'
+      })
+    ).toBe(false);
   });
 });

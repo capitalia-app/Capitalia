@@ -2160,12 +2160,18 @@ function MovementsPanel({
   }
 
   function openMovementEditor(movement: MoneyMovement) {
+    const suggestedCounterpartyAccountId =
+      movement.direction === 'outflow' &&
+      isCashWithdrawalDescription(movement.description)
+        ? getCashAccountId(accounts)
+        : '';
+
     setSelectedMovement(movement);
     setLocalStatus(null);
     setEditState({
       accountId: movement.accountId,
       categoryId: movement.categoryId ?? '',
-      counterpartyAccountId: movement.linkedAccountId ?? '',
+      counterpartyAccountId: movement.linkedAccountId ?? suggestedCounterpartyAccountId,
       isReviewed: movement.isReviewed,
       movementType: movement.movementType,
       notes: movement.notes ?? '',
@@ -2838,7 +2844,8 @@ function MovementEditorModal({
                       ...current,
                       categoryId: '',
                       counterpartyAccountId: event.target.checked
-                        ? current.counterpartyAccountId
+                        ? current.counterpartyAccountId ||
+                          getSuggestedCounterpartyAccountId(movement, accounts)
                         : '',
                       movementType: event.target.checked
                         ? 'transfer'
@@ -2868,6 +2875,45 @@ function MovementEditorModal({
       </div>
     </AppModal>
   );
+}
+
+function getSuggestedCounterpartyAccountId(
+  movement: MoneyMovement,
+  accounts: FinancialAccount[]
+) {
+  if (
+    movement.direction === 'outflow' &&
+    isCashWithdrawalDescription(movement.description)
+  ) {
+    return getCashAccountId(accounts);
+  }
+
+  return '';
+}
+
+function getCashAccountId(accounts: FinancialAccount[]) {
+  return (
+    accounts.find((account) => account.type === 'cash')?.id ??
+    accounts.find((account) =>
+      getFinancialAccountLabel(account).toLowerCase().includes('efectivo')
+    )?.id ??
+    ''
+  );
+}
+
+function isCashWithdrawalDescription(description: string) {
+  const normalized = description
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+  return [
+    'cajero',
+    'retirada efectivo',
+    'disposicion efectivo',
+    'atm',
+    'cash withdrawal'
+  ].some((keyword) => normalized.includes(keyword));
 }
 
 type CategoriesPanelProps = {

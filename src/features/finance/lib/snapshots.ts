@@ -310,20 +310,9 @@ export async function listFinancialContainers(workspaceId: string) {
       ]);
     });
 
-  const mappedContainers = containers.map((container) => {
-    const containerAssets = assetsByContainer.get(container.id) ?? [];
-
-    return {
-      assets: containerAssets,
-      containerType: container.container_type,
-      currency: container.currency,
-      id: container.id,
-      institution: container.institution,
-      name: container.name,
-      totalValue: sumAssetValues(containerAssets),
-      workspaceId: container.workspace_id
-    } satisfies FinancialContainer;
-  });
+  const mappedContainers = containers.map((container) =>
+    mapContainerRecord(container, assetsByContainer.get(container.id) ?? [])
+  );
 
   if (unassignedAssets.length > 0) {
     mappedContainers.push({
@@ -339,6 +328,78 @@ export async function listFinancialContainers(workspaceId: string) {
   }
 
   return mappedContainers;
+}
+
+export async function ensureCashFinancialContainer(workspaceId: string) {
+  if (!supabase) {
+    throw new Error('Supabase no esta configurado.');
+  }
+
+  const { data: existingCash, error: existingCashError } = await supabase
+    .from('financial_containers')
+    .select('id, workspace_id, name, institution, container_type, currency')
+    .eq('workspace_id', workspaceId)
+    .eq('container_type', 'cash')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle<ContainerRecord>();
+
+  if (existingCashError) {
+    throw existingCashError;
+  }
+
+  if (existingCash) {
+    return mapContainerRecord(existingCash, []);
+  }
+
+  const { data: existingByName, error: existingByNameError } = await supabase
+    .from('financial_containers')
+    .select('id, workspace_id, name, institution, container_type, currency')
+    .eq('workspace_id', workspaceId)
+    .ilike('name', 'Efectivo')
+    .is('deleted_at', null)
+    .limit(1)
+    .maybeSingle<ContainerRecord>();
+
+  if (existingByNameError) {
+    throw existingByNameError;
+  }
+
+  if (existingByName) {
+    return mapContainerRecord(existingByName, []);
+  }
+
+  const { data: created, error: createError } = await supabase
+    .from('financial_containers')
+    .insert({
+      container_type: 'cash',
+      currency: 'EUR',
+      institution: 'Manual',
+      name: 'Efectivo',
+      workspace_id: workspaceId
+    })
+    .select('id, workspace_id, name, institution, container_type, currency')
+    .single<ContainerRecord>();
+
+  if (createError) {
+    throw createError;
+  }
+
+  return mapContainerRecord(created, []);
+}
+
+function mapContainerRecord(container: ContainerRecord, assets: PatrimonyAsset[]) {
+  return {
+    assets,
+    containerType: container.container_type,
+    currency: container.currency,
+    id: container.id,
+    institution: container.institution,
+    name: container.name,
+    totalValue: sumAssetValues(assets),
+    workspaceId: container.workspace_id
+  } satisfies FinancialContainer;
 }
 
 export async function saveFinancialContainer(input: SaveFinancialContainerInput) {

@@ -21,6 +21,7 @@ import type {
 } from '@/features/finance/lib/import/types';
 import { normalizeHeader } from '@/features/finance/lib/import/utils';
 import {
+  ensureCashFinancialContainer,
   listFinancialContainers,
   type ContainerType,
   type FinancialContainer
@@ -148,6 +149,7 @@ type TransferLinkPlan = {
 
 export async function getCsvImportContext() {
   const workspace = await getCurrentWorkspace();
+  await ensureCashFinancialContainer(workspace.id);
   const containers = (await listFinancialContainers(workspace.id))
     .filter((container) => container.id !== 'unassigned')
     .map(mapContainerToImportOption);
@@ -269,6 +271,7 @@ export async function saveCsvImport(params: {
     container: params.container,
     workspaceId: params.workspaceId
   });
+  await ensureCashFinancialContainer(params.workspaceId);
   const containers = (await listFinancialContainers(params.workspaceId))
     .filter((container) => container.id !== 'unassigned')
     .map(mapContainerToImportOption);
@@ -645,14 +648,15 @@ function mapImportToComparableTransaction(input: {
 
 function mapClassifiedToComparableTransaction(input: {
   accountId: string;
-  transaction: ClassifiedImportTransaction;
+  transaction: ClassifiedImportTransaction & { importHash?: string };
 }) {
   return {
     accountId: input.accountId,
     amount: input.transaction.amount,
     date: input.transaction.date,
     description: input.transaction.description,
-    direction: input.transaction.direction
+    direction: input.transaction.direction,
+    stableReference: input.transaction.importHash ?? null
   } satisfies ComparableTransaction;
 }
 
@@ -664,7 +668,8 @@ function mapExistingToComparableTransaction(transaction: ExistingTransactionReco
     description: transaction.description,
     direction: transaction.direction,
     id: transaction.id,
-    occurredAt: transaction.occurred_at
+    occurredAt: transaction.occurred_at,
+    stableReference: transaction.import_hash
   } satisfies ExistingComparableTransaction;
 }
 

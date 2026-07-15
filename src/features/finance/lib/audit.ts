@@ -100,6 +100,13 @@ type AuditRecoverySupabaseError = {
   message?: string;
 };
 
+type RestoredTransactionRecord = {
+  id: string;
+  deleted_at: string | null;
+  manually_validated: boolean;
+  status: string;
+};
+
 type AccountRecord = {
   id: string;
   name: string;
@@ -230,7 +237,10 @@ export async function recoverAuditedMovement(input: {
   const recoveryResponse = (await supabase.rpc(
     'restore_audited_transaction',
     payload
-  )) as { error: AuditRecoverySupabaseError | null };
+  )) as {
+    data: RestoredTransactionRecord | null;
+    error: AuditRecoverySupabaseError | null;
+  };
   const recoveryError = recoveryResponse.error;
 
   if (recoveryError) {
@@ -244,6 +254,20 @@ export async function recoverAuditedMovement(input: {
     }
 
     throw new Error(getAuditRecoveryErrorMessage(recoveryError));
+  }
+
+  const restoredTransaction = recoveryResponse.data;
+
+  if (!isRestoredTransactionActive(restoredTransaction)) {
+    if (import.meta.env.DEV) {
+      console.error('Recover audited movement returned an inactive transaction', {
+        auditType: input.auditType,
+        movementId: input.movementId,
+        restoredTransaction
+      });
+    }
+
+    throw new Error('No se pudo restaurar el movimiento por completo.');
   }
 }
 
@@ -647,6 +671,17 @@ export function isAuditDetectionProtected(transaction: {
   manually_validated?: boolean | null;
 }) {
   return transaction.manually_validated === true;
+}
+
+export function isRestoredTransactionActive(
+  transaction: RestoredTransactionRecord | null
+) {
+  return Boolean(
+    transaction &&
+    transaction.status === 'posted' &&
+    transaction.deleted_at === null &&
+    transaction.manually_validated === true
+  );
 }
 
 function mapAuditDuplicateTransaction(transaction: {

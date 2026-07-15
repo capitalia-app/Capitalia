@@ -3359,7 +3359,7 @@ type AssetFormState = {
   id?: string;
   containerId: string;
   name: string;
-  assetType: AssetType;
+  assetType: AssetType | 'not_asset';
   currentValue: string;
   currency: string;
   quantity: string;
@@ -3507,6 +3507,7 @@ function AssetsPanel({ onUpdated, summary }: AssetsPanelProps) {
   const [editingAsset, setEditingAsset] = useState<PatrimonyAsset | null>(null);
   const [movingAsset, setMovingAsset] = useState<PatrimonyAsset | null>(null);
   const [deletingAsset, setDeletingAsset] = useState<PatrimonyAsset | null>(null);
+  const [notAsset, setNotAsset] = useState<PatrimonyAsset | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [panelError, setPanelError] = useState<string | null>(null);
   const assets = getAllContainerAssets(summary?.containers ?? []);
@@ -3618,6 +3619,10 @@ function AssetsPanel({ onUpdated, summary }: AssetsPanelProps) {
             setMovingAsset(selectedAsset);
             setSelectedAsset(null);
           }}
+          onNotAsset={() => {
+            setNotAsset(selectedAsset);
+            setSelectedAsset(null);
+          }}
         />
       ) : null}
 
@@ -3676,6 +3681,21 @@ function AssetsPanel({ onUpdated, summary }: AssetsPanelProps) {
             setPanelError(null);
             setDeletingAsset(null);
             onUpdated('Activo archivado.');
+          }}
+          workspaceId={summary?.workspace.id}
+        />
+      ) : null}
+
+      {notAsset ? (
+        <ConfirmArchiveAssetModal
+          asset={notAsset}
+          intent="not_asset"
+          onClose={() => setNotAsset(null)}
+          onError={setPanelError}
+          onSaved={() => {
+            setPanelError(null);
+            setNotAsset(null);
+            onUpdated('Elemento quitado de Activos. El movimiento bancario se conserva.');
           }}
           workspaceId={summary?.workspace.id}
         />
@@ -3858,6 +3878,27 @@ function AssetEditorModal({
       return;
     }
 
+    if (form.assetType === 'not_asset') {
+      if (!asset?.id) {
+        onError('No se puede quitar de Activos un activo que aun no existe.');
+        return;
+      }
+
+      setIsSaving(true);
+      onError(null);
+
+      try {
+        await archivePatrimonyAsset({ assetId: asset.id, workspaceId });
+        onSaved();
+      } catch (assetError) {
+        onError(getErrorMessage(assetError));
+      } finally {
+        setIsSaving(false);
+      }
+
+      return;
+    }
+
     const quantity = parseOptionalNumber(form.quantity);
     const averageCost = parseOptionalNumber(form.averageCost);
     const explicitTotalCost = parseOptionalNumber(form.totalCost);
@@ -3957,11 +3998,12 @@ function AssetEditorModal({
           onChange={(event) =>
             setForm((current) => ({
               ...current,
-              assetType: event.target.value as AssetType
+              assetType: event.target.value as AssetFormState['assetType']
             }))
           }
           value={form.assetType}
         >
+          {mode === 'edit' ? <option value="not_asset">No es un activo</option> : null}
           {assetTypes.map((type) => (
             <option key={type.value} value={type.value}>
               {type.label}
@@ -4144,12 +4186,14 @@ function MoveAssetModal({
 
 function ConfirmArchiveAssetModal({
   asset,
+  intent = 'archive',
   onClose,
   onError,
   onSaved,
   workspaceId
 }: {
   asset: PatrimonyAsset;
+  intent?: 'archive' | 'not_asset';
   onClose: () => void;
   onError: (message: string | null) => void;
   onSaved: () => void;
@@ -4195,17 +4239,26 @@ function ConfirmArchiveAssetModal({
             onClick={() => void handleArchive()}
             type="button"
           >
-            {isSaving ? 'Archivando...' : 'Archivar activo'}
+            {isSaving
+              ? 'Guardando...'
+              : intent === 'not_asset'
+                ? 'Quitar de Activos'
+                : 'Archivar activo'}
           </ActionButton>
         </>
       }
       onClose={onClose}
-      subtitle="No se borra fisicamente: queda archivado con deleted_at."
+      subtitle={
+        intent === 'not_asset'
+          ? 'El movimiento bancario permanece intacto en Movimientos y en su cuenta.'
+          : 'No se borra fisicamente: queda archivado con deleted_at.'
+      }
       title={asset.name}
     >
       <p className="modal-copy">
-        Este activo dejara de aparecer en Cuentas y Activos, pero el registro se conserva
-        para mantener trazabilidad.
+        {intent === 'not_asset'
+          ? 'Se quitara este elemento de Activos, pero el movimiento bancario permanecera en Movimientos y en su cuenta. No se alteran saldos ni importes historicos.'
+          : 'Este activo dejara de aparecer en Cuentas y Activos, pero el registro se conserva para mantener trazabilidad.'}
       </p>
     </AppModal>
   );
@@ -4296,13 +4349,15 @@ function AssetDetailsModal({
   onClose,
   onDelete,
   onEdit,
-  onMove
+  onMove,
+  onNotAsset
 }: {
   asset: PatrimonyAsset;
   onClose: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onMove: () => void;
+  onNotAsset: () => void;
 }) {
   const performance = getAssetPerformance(asset);
 
@@ -4318,6 +4373,9 @@ function AssetDetailsModal({
           </button>
           <button className="text-link" onClick={onMove} type="button">
             Mover activo
+          </button>
+          <button className="text-link" onClick={onNotAsset} type="button">
+            Esto no es un activo
           </button>
           <button className="text-link" onClick={onDelete} type="button">
             Eliminar

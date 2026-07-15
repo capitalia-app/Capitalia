@@ -8,6 +8,7 @@ import {
   mapMovementTypeToTransactionType,
   type ClassifiedImportTransaction
 } from '@/features/finance/lib/categories';
+import { canCreateImportedAssetFromTransaction } from '@/features/finance/lib/assetIntegrity';
 import {
   findEquivalentTransaction,
   findSuspiciousTransaction,
@@ -509,7 +510,7 @@ export async function saveCsvImport(params: {
     workspaceId: params.workspaceId
   });
   await applyAssetPurchasesToContainer({
-    containerId: params.container.id,
+    container: params.container,
     transactions: newTransactions,
     workspaceId: params.workspaceId
   });
@@ -686,13 +687,17 @@ function buildPreviewAnalysis<TItem extends { status: ImportDuplicateStatus }>(
 
 async function applyAssetPurchasesToContainer(input: {
   workspaceId: string;
-  containerId: string;
+  container: ImportContainerOption;
   transactions: ClassifiedImportTransaction[];
 }) {
-  const purchases = input.transactions.filter(
-    (transaction) =>
-      transaction.movementType === 'investment' ||
-      transaction.transactionType === 'asset_purchase'
+  const purchases = input.transactions.filter((transaction) =>
+    canCreateImportedAssetFromTransaction({
+      categoryName: transaction.categoryName,
+      containerType: input.container.containerType,
+      description: transaction.description,
+      movementType: transaction.movementType,
+      transactionType: transaction.transactionType
+    })
   );
 
   if (!supabase || purchases.length === 0) {
@@ -704,7 +709,7 @@ async function applyAssetPurchasesToContainer(input: {
     const assetName = getAssetNameFromPurchase(purchase);
     const existingAsset = await findContainerAsset({
       assetName,
-      containerId: input.containerId,
+      containerId: input.container.id,
       workspaceId: input.workspaceId
     });
     const nextTotalCost = Number(existingAsset?.total_cost ?? 0) + amount;
@@ -726,7 +731,7 @@ async function applyAssetPurchasesToContainer(input: {
     } else {
       const { error } = await supabase.from('assets').insert({
         asset_type: mapCategoryNameToAssetType(purchase.categoryName),
-        container_id: input.containerId,
+        container_id: input.container.id,
         currency: purchase.currency.toUpperCase(),
         manual_value: amount,
         metadata: {
@@ -747,7 +752,7 @@ async function applyAssetPurchasesToContainer(input: {
 
     await decreaseContainerCashAsset({
       amount,
-      containerId: input.containerId,
+      containerId: input.container.id,
       workspaceId: input.workspaceId
     });
   }

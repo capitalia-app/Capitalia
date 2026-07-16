@@ -682,18 +682,23 @@ export async function resetWorkspaceFinancialData(workspaceId: string) {
 }
 
 function mapSnapshot(snapshot: SnapshotRecord, itemRecords: SnapshotItemRecord[]) {
-  const items = itemRecords.map((item) => ({
-    currency: item.currency,
-    id: item.id,
-    linkedAccountId: item.linked_account_id,
-    linkedAssetId: item.linked_asset_id,
-    linkedContainerId: item.linked_container_id,
-    name: item.name,
-    notes: item.notes,
-    platform: item.platform,
-    type: item.type,
-    value: Number(item.value)
-  }));
+  const items = itemRecords.map((item) => {
+    const type = getEffectiveSnapshotItemType(item);
+    const value = Number(item.value);
+
+    return {
+      currency: item.currency,
+      id: item.id,
+      linkedAccountId: item.linked_account_id,
+      linkedAssetId: item.linked_asset_id,
+      linkedContainerId: item.linked_container_id,
+      name: item.name,
+      notes: item.notes,
+      platform: item.platform,
+      type,
+      value: type === 'liability' ? -Math.abs(value) : value
+    };
+  });
   const patrimonialItems = items.filter((item) => !isEmptyContainerSnapshotItem(item));
   const initialGrossWorth = patrimonialItems
     .filter((item) => item.type !== 'liability')
@@ -1128,7 +1133,7 @@ function isEmptyContainerSnapshotItem(item: PatrimonialSnapshotItem) {
 }
 
 function mapAssetRecord(asset: AssetRecord, latestValuation?: AssetValuationRecord) {
-  const assetType = asset.asset_type ?? mapLegacyAssetTypeToAssetType(asset.type);
+  const assetType = getEffectiveAssetType(asset);
   const storedValue = Number(asset.manual_value ?? 0);
   const totalCost = asset.total_cost === null ? null : Number(asset.total_cost);
   const valuationValue =
@@ -1136,7 +1141,12 @@ function mapAssetRecord(asset: AssetRecord, latestValuation?: AssetValuationReco
   const estimatedCostValue =
     valuationValue === null && storedValue === 0 && totalCost !== null ? totalCost : null;
   const value =
-    valuationValue ?? (storedValue > 0 ? storedValue : (estimatedCostValue ?? 0));
+    valuationValue ??
+    (assetType === 'liability'
+      ? Math.abs(storedValue)
+      : storedValue > 0
+        ? storedValue
+        : (estimatedCostValue ?? 0));
 
   return {
     assetType,
@@ -1158,6 +1168,40 @@ function mapAssetRecord(asset: AssetRecord, latestValuation?: AssetValuationReco
     totalCost,
     quantity: asset.quantity === null ? null : Number(asset.quantity)
   } satisfies PatrimonyAsset;
+}
+
+function getEffectiveSnapshotItemType(item: SnapshotItemRecord) {
+  if (item.type !== 'liability' && isMortgageText(item.name, item.notes)) {
+    return 'liability';
+  }
+
+  return item.type;
+}
+
+function getEffectiveAssetType(asset: AssetRecord) {
+  const rawAssetType = asset.asset_type ?? mapLegacyAssetTypeToAssetType(asset.type);
+
+  if (rawAssetType !== 'liability' && isMortgageAssetRecord(asset)) {
+    return 'liability';
+  }
+
+  return rawAssetType;
+}
+
+function isMortgageAssetRecord(asset: AssetRecord) {
+  return isMortgageText(
+    asset.name,
+    `${asset.provider ?? ''} ${asset.notes ?? ''} ${asset.type}`
+  );
+}
+
+function isMortgageText(name: string, context?: string | null) {
+  const text = `${name} ${context ?? ''}`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+  return text.includes('hipoteca') || text.includes('mortgage');
 }
 
 function sumAssetValues(assets: PatrimonyAsset[]) {

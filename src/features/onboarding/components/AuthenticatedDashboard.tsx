@@ -3510,7 +3510,9 @@ function AssetsPanel({ onUpdated, summary }: AssetsPanelProps) {
   const [notAsset, setNotAsset] = useState<PatrimonyAsset | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [panelError, setPanelError] = useState<string | null>(null);
-  const assets = getAllContainerAssets(summary?.containers ?? []);
+  const assets = getAllContainerAssets(summary?.containers ?? []).filter(
+    (asset) => asset.assetType !== 'liability'
+  );
   const groups = groupAssetsByType(assets);
   const currency = summary?.currency ?? 'EUR';
 
@@ -4468,69 +4470,75 @@ function ContainerBreakdown({
     <section className="snapshot-group-block">
       <h3>{title}</h3>
       <div className="container-list">
-        {containers.map((container) => (
-          <details className="container-card" key={container.id}>
-            <summary>
-              <div>
-                <strong>{getContainerLabel(container)}</strong>
-                <span>
-                  {getContainerTypeLabel(container.containerType)} ·{' '}
-                  {container.assets.length}{' '}
-                  {container.assets.length === 1 ? 'activo' : 'activos'}
-                </span>
-              </div>
-              <strong>{formatMoney(container.totalValue, currency)}</strong>
-            </summary>
+        {containers.map((container) => {
+          const visibleAssets = container.assets.filter(
+            (asset) => asset.assetType !== 'liability'
+          );
 
-            {container.assets.length > 0 ? (
-              <div className="asset-list">
-                {container.assets.map((asset) => (
-                  <article className="asset-row" key={asset.id}>
-                    <div>
-                      <strong>{asset.name}</strong>
-                      <span>{getAssetTypeLabel(asset.assetType)}</span>
-                    </div>
-                    <div className="asset-performance-summary">
-                      <strong>{getAssetCurrentValueLabel(asset)}</strong>
-                      <small>{getAssetCostSummary(asset)}</small>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state-card">
-                <span>Sin activos dentro</span>
-                <p>Este contenedor existe, pero todavia no tiene activos asociados.</p>
-              </div>
-            )}
+          return (
+            <details className="container-card" key={container.id}>
+              <summary>
+                <div>
+                  <strong>{getContainerLabel(container)}</strong>
+                  <span>
+                    {getContainerTypeLabel(container.containerType)} ·{' '}
+                    {visibleAssets.length}{' '}
+                    {visibleAssets.length === 1 ? 'activo' : 'activos'}
+                  </span>
+                </div>
+                <strong>{formatMoney(container.totalValue, currency)}</strong>
+              </summary>
 
-            {showActions ? (
-              <div className="container-actions" aria-label="Gestion del contenedor">
-                <button
-                  className="text-link"
-                  onClick={() => onEditContainer?.(container)}
-                  type="button"
-                >
-                  Editar
-                </button>
-                <button
-                  className="text-link"
-                  onClick={() => onAddAsset?.(container)}
-                  type="button"
-                >
-                  Anadir activo
-                </button>
-                <button
-                  className="text-link"
-                  onClick={() => onDeleteContainer?.(container)}
-                  type="button"
-                >
-                  Eliminar
-                </button>
-              </div>
-            ) : null}
-          </details>
-        ))}
+              {visibleAssets.length > 0 ? (
+                <div className="asset-list">
+                  {visibleAssets.map((asset) => (
+                    <article className="asset-row" key={asset.id}>
+                      <div>
+                        <strong>{asset.name}</strong>
+                        <span>{getAssetTypeLabel(asset.assetType)}</span>
+                      </div>
+                      <div className="asset-performance-summary">
+                        <strong>{getAssetCurrentValueLabel(asset)}</strong>
+                        <small>{getAssetCostSummary(asset)}</small>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state-card">
+                  <span>Sin activos dentro</span>
+                  <p>Este contenedor existe, pero todavia no tiene activos asociados.</p>
+                </div>
+              )}
+
+              {showActions ? (
+                <div className="container-actions" aria-label="Gestion del contenedor">
+                  <button
+                    className="text-link"
+                    onClick={() => onEditContainer?.(container)}
+                    type="button"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    className="text-link"
+                    onClick={() => onAddAsset?.(container)}
+                    type="button"
+                  >
+                    Anadir activo
+                  </button>
+                  <button
+                    className="text-link"
+                    onClick={() => onDeleteContainer?.(container)}
+                    type="button"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              ) : null}
+            </details>
+          );
+        })}
       </div>
     </section>
   );

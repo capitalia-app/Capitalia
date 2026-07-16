@@ -16,6 +16,7 @@ import {
   matchesMetricFilter,
   type FinancialMetric
 } from '@/features/finance/lib/financialMetrics';
+import { getImportedAssetName } from '@/features/finance/lib/assetIntegrity';
 import {
   getFinancialMonthIndex,
   getFinancialYear,
@@ -625,7 +626,7 @@ function buildAssetPurchaseRows(transactions: AnnualTransaction[], year: number)
   const groups = new Map<string, AnnualTransaction[]>();
 
   transactions.forEach((transaction) => {
-    const key = transaction.categoryName ?? transaction.description;
+    const key = getAssetPurchaseDisplayName(transaction);
     groups.set(key, [...(groups.get(key) ?? []), transaction]);
   });
 
@@ -641,6 +642,19 @@ function buildAssetPurchaseRows(transactions: AnnualTransaction[], year: number)
       )
     )
     .sort((left, right) => Math.abs(right.total) - Math.abs(left.total));
+}
+
+export function getAssetPurchaseDisplayName(
+  transaction: Pick<AnnualTransaction, 'categoryName' | 'description' | 'transactionType'>
+) {
+  if (transaction.transactionType === 'asset_purchase') {
+    return getImportedAssetName({
+      categoryName: transaction.categoryName,
+      description: transaction.description
+    });
+  }
+
+  return transaction.categoryName ?? transaction.description;
 }
 
 function buildRuleRow(

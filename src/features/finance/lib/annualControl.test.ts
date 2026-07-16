@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { calculateVeramarMonthlyBalance } from '@/features/finance/lib/annualControl';
+import {
+  calculateVeramarMonthlyBalance,
+  getAssetPurchaseDisplayName
+} from '@/features/finance/lib/annualControl';
 
 describe('annual control', () => {
   it.each([
@@ -15,5 +18,15 @@ describe('annual control', () => {
 
   it('does not double-negative Veramar expenses stored as outflows', () => {
     expect(calculateVeramarMonthlyBalance([820], [-386])[0]).toBe(434);
+  });
+
+  it('groups recurring fund purchases by stable asset name instead of category', () => {
+    expect(
+      getAssetPurchaseDisplayName({
+        categoryName: 'Fondos',
+        description: 'Compra fondo Fidelity S&P 500 25,00 EUR',
+        transactionType: 'asset_purchase'
+      })
+    ).toBe('Fidelity S&P 500');
   });
 });

@@ -150,6 +150,49 @@ export function normalizeAssetText(value: string) {
     .trim();
 }
 
+export function getImportedAssetName(input: {
+  categoryName?: string | null;
+  description: string;
+}) {
+  const description = input.description
+    .replace(/\bs\s*&\s*p\s*500\b/gi, 'sp500')
+    .replace(/\b\d+[,.]\d{2}\b/g, ' ');
+  const normalized = normalizeAssetText(description);
+  const withoutOperationWords = normalized
+    .replace(/\b(compra|suscripcion|suscripción|aportacion|aportación)\b/g, ' ')
+    .replace(/\b(fondo|fondos|etf|participaciones|titulos|títulos)\b/g, ' ')
+    .replace(
+      /\b(eur|euro|euros|myinvestor|orden|mercado|valor|liquidacion|liquidación)\b/g,
+      ' '
+    )
+    .replace(/\b\d{5,}\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (withoutOperationWords.length >= 3) {
+    return toTitleCase(preserveKnownTickers(withoutOperationWords));
+  }
+
+  return input.description.trim();
+}
+
+export function getNextAssetValueAfterPurchase(input: {
+  currentValue: number;
+  purchaseAmount: number;
+}) {
+  return Math.max(0, input.currentValue) + Math.abs(input.purchaseAmount);
+}
+
+export function getNextLiabilityValueAfterPrincipalPayment(input: {
+  currentValue: number;
+  principalAmount: number;
+}) {
+  const currentDebt = Math.abs(input.currentValue);
+  const nextDebt = Math.max(0, currentDebt - Math.abs(input.principalAmount));
+
+  return -nextDebt;
+}
+
 function containsAny(value: string, keywords: string[]) {
   return keywords.some((keyword) => containsKeyword(value, keyword));
 }
@@ -166,6 +209,27 @@ function containsKeyword(value: string, keyword: string) {
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function preserveKnownTickers(value: string) {
+  return value
+    .replace(/\bs p 500\b/g, 's&p 500')
+    .replace(/\bsp 500\b/g, 's&p 500')
+    .replace(/\bsp500\b/g, 's&p 500')
+    .replace(/\bmsci\b/g, 'MSCI');
+}
+
+function toTitleCase(value: string) {
+  return value
+    .split(' ')
+    .map((word) => {
+      if (word === 'MSCI' || word.includes('&')) {
+        return word.toUpperCase();
+      }
+
+      return `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`;
+    })
+    .join(' ');
 }
 
 function getAssetSource(metadata: ImportedAssetRecord['metadata']) {

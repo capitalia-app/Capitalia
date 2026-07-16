@@ -8,7 +8,12 @@ import {
   mapMovementTypeToTransactionType,
   type ClassifiedImportTransaction
 } from '@/features/finance/lib/categories';
-import { canCreateImportedAssetFromTransaction } from '@/features/finance/lib/assetIntegrity';
+import {
+  canCreateImportedAssetFromTransaction,
+  getImportedAssetName,
+  getNextAssetValueAfterPurchase,
+  getNextLiabilityValueAfterPrincipalPayment
+} from '@/features/finance/lib/assetIntegrity';
 import {
   findEquivalentTransaction,
   findSuspiciousTransaction,
@@ -137,6 +142,12 @@ type AssetCostRecord = {
   manual_value: number | string | null;
   name: string;
   total_cost: number | string | null;
+};
+
+type LiabilityAssetRecord = {
+  id: string;
+  manual_value: number | string | null;
+  name: string;
 };
 
 type TransferLinkPlan = {
@@ -487,7 +498,9 @@ export async function saveCsvImport(params: {
           occurred_at: `${transaction.date}T12:00:00.000Z`,
           raw_import_record_id: rawRecordsByHash.get(transaction.fingerprint),
           status: 'posted',
-          transaction_type: mapMovementTypeToTransactionType(transaction.movementType),
+          transaction_type:
+            transaction.transactionType ??
+            mapMovementTypeToTransactionType(transaction.movementType),
           transfer_group_id: transferPlan?.transferGroupId ?? null,
           workspace_id: params.workspaceId
         };
@@ -511,6 +524,10 @@ export async function saveCsvImport(params: {
   });
   await applyAssetPurchasesToContainer({
     container: params.container,
+    transactions: newTransactions,
+    workspaceId: params.workspaceId
+  });
+  await applyMortgagePrincipalPayments({
     transactions: newTransactions,
     workspaceId: params.workspaceId
   });
@@ -713,7 +730,10 @@ async function applyAssetPurchasesToContainer(input: {
       workspaceId: input.workspaceId
     });
     const nextTotalCost = Number(existingAsset?.total_cost ?? 0) + amount;
-    const nextManualValue = Number(existingAsset?.manual_value ?? 0) || nextTotalCost;
+    const nextManualValue = getNextAssetValueAfterPurchase({
+      currentValue: Number(existingAsset?.manual_value ?? 0),
+      purchaseAmount: amount
+    });
 
     if (existingAsset) {
       const { error } = await supabase
@@ -826,7 +846,94 @@ async function decreaseContainerCashAsset(input: {
 }
 
 function getAssetNameFromPurchase(transaction: ClassifiedImportTransaction) {
-  return transaction.description;
+  return getImportedAssetName({
+    categoryName: transaction.categoryName,
+    description: transaction.description
+  });
+}
+
+async function applyMortgagePrincipalPayments(input: {
+  workspaceId: string;
+  transactions: ClassifiedImportTransaction[];
+}) {
+  const principalPayments = input.transactions.filter(
+    (transaction) => transaction.transactionType === 'mortgage_principal'
+  );
+
+  if (!supabase || principalPayments.length === 0) {
+    return;
+  }
+
+  const liability = await findMortgageLiabilityAsset(input.workspaceId);
+
+  if (!liability) {
+    return;
+  }
+
+  const principalTotal = principalPayments.reduce(
+    (total, transaction) => total + Math.abs(transaction.amount),
+    0
+  );
+  const currentDebt = Math.abs(Number(liability.manual_value ?? 0));
+  const nextDebt = Math.abs(
+    getNextLiabilityValueAfterPrincipalPayment({
+      currentValue: currentDebt,
+      principalAmount: principalTotal
+    })
+  );
+
+  const { error } = await supabase
+    .from('assets')
+    .update({
+      manual_value: -nextDebt
+    })
+    .eq('id', liability.id)
+    .eq('workspace_id', input.workspaceId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function findMortgageLiabilityAsset(workspaceId: string) {
+  if (!supabase) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('assets')
+    .select('id, name, manual_value')
+    .eq('workspace_id', workspaceId)
+    .eq('asset_type', 'liability')
+    .is('deleted_at', null)
+    .ilike('name', '%hipoteca%')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle<LiabilityAssetRecord>();
+
+  if (error) {
+    throw error;
+  }
+
+  if (data) {
+    return data;
+  }
+
+  const { data: fallback, error: fallbackError } = await supabase
+    .from('assets')
+    .select('id, name, manual_value')
+    .eq('workspace_id', workspaceId)
+    .eq('asset_type', 'liability')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle<LiabilityAssetRecord>();
+
+  if (fallbackError) {
+    throw fallbackError;
+  }
+
+  return fallback;
 }
 
 function mapCategoryNameToAssetType(categoryName: string | null) {

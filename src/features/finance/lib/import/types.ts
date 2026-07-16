@@ -1,7 +1,12 @@
 export type MovementType = 'income' | 'expense' | 'investment' | 'transfer';
 
 export type ImportTransactionType =
-  MovementType | 'asset_purchase' | 'investment_transfer';
+  | MovementType
+  | 'asset_purchase'
+  | 'investment_transfer'
+  | 'mortgage_payment'
+  | 'mortgage_principal'
+  | 'mortgage_interest';
 
 export type NormalizedImportTransaction = {
   id: string;

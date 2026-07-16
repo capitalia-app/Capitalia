@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canCreateImportedAssetFromTransaction,
+  getImportedAssetName,
+  getNextAssetValueAfterPurchase,
+  getNextLiabilityValueAfterPrincipalPayment,
   isLikelyInvalidImportedAsset,
   normalizeAssetText
 } from '@/features/finance/lib/assetIntegrity';
@@ -136,5 +139,32 @@ describe('asset integrity', () => {
     expect(normalizeAssetText('Mercadona Cala de Mijas - Pago con tarjeta')).toBe(
       'mercadona cala de mijas pago con tarjeta'
     );
+  });
+
+  it('keeps recurring fund purchases grouped under a stable asset name', () => {
+    expect(
+      getImportedAssetName({
+        categoryName: 'Fondos',
+        description: 'Compra fondo Fidelity S&P 500 25,00 EUR'
+      })
+    ).toBe('Fidelity S&P 500');
+  });
+
+  it('adds asset purchases to the estimated asset value', () => {
+    expect(
+      getNextAssetValueAfterPurchase({
+        currentValue: 100,
+        purchaseAmount: 25
+      })
+    ).toBe(125);
+  });
+
+  it('reduces mortgage debt with principal payments', () => {
+    expect(
+      getNextLiabilityValueAfterPrincipalPayment({
+        currentValue: -64131.53,
+        principalAmount: 500
+      })
+    ).toBe(-63631.53);
   });
 });

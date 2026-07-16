@@ -14,10 +14,12 @@ export type AssetPurchaseCandidate = {
 
 export type ImportedAssetRecord = {
   assetType?: string | null;
+  containerId?: string | null;
   isin?: string | null;
   metadata?: Record<string, unknown> | null;
   name: string;
   purchaseDate?: string | null;
+  provider?: string | null;
   quantity?: number | string | null;
   symbol?: string | null;
 };
@@ -107,13 +109,17 @@ export function canCreateImportedAssetFromTransaction(candidate: AssetPurchaseCa
 export function isLikelyInvalidImportedAsset(asset: ImportedAssetRecord) {
   const source = getAssetSource(asset.metadata);
 
-  if (source !== 'asset_purchase_import') {
+  if (source && source !== 'asset_purchase_import') {
     return false;
   }
 
+  const hasImportOrigin =
+    source === 'asset_purchase_import' ||
+    (!hasText(asset.provider) && !asset.containerId);
+
   const normalizedName = normalizeAssetText(asset.name);
 
-  if (!containsAny(normalizedName, expenseMerchantKeywords)) {
+  if (!hasImportOrigin || !containsAny(normalizedName, expenseMerchantKeywords)) {
     return false;
   }
 
@@ -145,7 +151,21 @@ export function normalizeAssetText(value: string) {
 }
 
 function containsAny(value: string, keywords: string[]) {
-  return keywords.some((keyword) => value.includes(normalizeAssetText(keyword)));
+  return keywords.some((keyword) => containsKeyword(value, keyword));
+}
+
+function containsKeyword(value: string, keyword: string) {
+  const normalizedKeyword = normalizeAssetText(keyword);
+
+  if (!normalizedKeyword) {
+    return false;
+  }
+
+  return new RegExp(`(^| )${escapeRegExp(normalizedKeyword)}( |$)`).test(value);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function getAssetSource(metadata: ImportedAssetRecord['metadata']) {

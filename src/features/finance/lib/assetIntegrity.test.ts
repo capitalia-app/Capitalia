@@ -81,6 +81,36 @@ describe('asset integrity', () => {
     ).toBe(false);
   });
 
+  it('detects legacy orphan expense assets without import metadata', () => {
+    expect(
+      isLikelyInvalidImportedAsset({
+        assetType: 'stock',
+        containerId: null,
+        metadata: null,
+        name: 'Transferencia realizada Honorarios por redaccion de certificado',
+        provider: null,
+        purchaseDate: null,
+        quantity: null,
+        symbol: null
+      })
+    ).toBe(true);
+  });
+
+  it('does not mark platform-owned manual assets as invalid without import metadata', () => {
+    expect(
+      isLikelyInvalidImportedAsset({
+        assetType: 'stock',
+        containerId: 'manual-container',
+        metadata: null,
+        name: 'Mercadona acciones manuales',
+        provider: 'Manual',
+        purchaseDate: null,
+        quantity: null,
+        symbol: null
+      })
+    ).toBe(false);
+  });
+
   it('does not modify real crypto, ETF, fund or stock assets', () => {
     const validAssets = [
       { assetType: 'crypto', name: 'BTC' },

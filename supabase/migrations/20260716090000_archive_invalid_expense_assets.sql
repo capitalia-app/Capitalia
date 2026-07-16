@@ -1,7 +1,8 @@
 -- Capitalia: archive invalid assets that were created from ordinary expense movements.
 --
 -- This is intentionally conservative:
--- - it only touches assets generated automatically by the import asset-purchase flow;
+-- - it touches assets generated automatically by the import asset-purchase flow
+--   or orphan assets with no platform/provider signal;
 -- - it keeps the original bank transaction intact;
 -- - it uses soft delete semantics via deleted_at/status;
 -- - it avoids assets with symbols, ISINs, quantities or purchase dates.
@@ -23,7 +24,11 @@ begin
     )
   where deleted_at is null
     and status = 'active'
-    and metadata ->> 'source' = 'asset_purchase_import'
+    and (
+      metadata ->> 'source' = 'asset_purchase_import'
+      or container_id is null
+      or coalesce(provider, '') = ''
+    )
     and coalesce(symbol, '') = ''
     and coalesce(isin, '') = ''
     and quantity is null

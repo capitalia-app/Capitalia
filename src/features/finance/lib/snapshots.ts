@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/lib/supabase';
+import { isLikelyInvalidImportedAsset } from '@/features/finance/lib/assetIntegrity';
 
 export type SnapshotItemType =
   | 'bank_account'
@@ -203,6 +204,8 @@ type AssetRecord = {
   asset_type: AssetType | null;
   type: string;
   currency: string;
+  isin: string | null;
+  metadata: Record<string, unknown> | null;
   quantity: number | string | null;
   manual_value: number | string | null;
   purchase_price: number | string | null;
@@ -212,6 +215,7 @@ type AssetRecord = {
   provider: string | null;
   linked_asset_id: string | null;
   notes: string | null;
+  symbol: string | null;
 };
 
 type AssetValuationRecord = {
@@ -278,7 +282,7 @@ export async function listFinancialContainers(workspaceId: string) {
   const { data: assets, error: assetsError } = await supabase
     .from('assets')
     .select(
-      'id, container_id, name, asset_type, type, currency, quantity, manual_value, purchase_price, average_cost, total_cost, purchase_date, provider, linked_asset_id, notes'
+      'id, container_id, name, asset_type, type, currency, quantity, manual_value, purchase_price, average_cost, total_cost, purchase_date, provider, linked_asset_id, notes, symbol, isin, metadata'
     )
     .eq('workspace_id', workspaceId)
     .is('deleted_at', null)
@@ -297,6 +301,7 @@ export async function listFinancialContainers(workspaceId: string) {
   const unassignedAssets: PatrimonyAsset[] = [];
 
   assets
+    .filter((asset) => !isInvalidExpenseAssetRecord(asset))
     .map((asset) => mapAssetRecord(asset, latestValuations.get(asset.id)))
     .forEach((asset) => {
       if (!asset.containerId) {
@@ -339,6 +344,20 @@ export async function listFinancialContainers(workspaceId: string) {
   }
 
   return mappedContainers;
+}
+
+function isInvalidExpenseAssetRecord(asset: AssetRecord) {
+  return isLikelyInvalidImportedAsset({
+    assetType: asset.asset_type,
+    containerId: asset.container_id,
+    isin: asset.isin,
+    metadata: asset.metadata,
+    name: asset.name,
+    provider: asset.provider,
+    purchaseDate: asset.purchase_date,
+    quantity: asset.quantity,
+    symbol: asset.symbol
+  });
 }
 
 export async function saveFinancialContainer(input: SaveFinancialContainerInput) {

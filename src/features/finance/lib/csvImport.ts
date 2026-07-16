@@ -856,9 +856,7 @@ async function applyMortgagePrincipalPayments(input: {
   workspaceId: string;
   transactions: ClassifiedImportTransaction[];
 }) {
-  const principalPayments = input.transactions.filter(
-    (transaction) => transaction.transactionType === 'mortgage_principal'
-  );
+  const principalPayments = input.transactions.filter(isFullMortgagePaymentTransaction);
 
   if (!supabase || principalPayments.length === 0) {
     return;
@@ -893,6 +891,21 @@ async function applyMortgagePrincipalPayments(input: {
   if (error) {
     throw error;
   }
+}
+
+function isFullMortgagePaymentTransaction(transaction: ClassifiedImportTransaction) {
+  if (
+    transaction.transactionType === 'mortgage_principal' ||
+    transaction.transactionType === 'mortgage_payment'
+  ) {
+    return true;
+  }
+
+  const text = normalizeHeader(
+    `${transaction.description} ${transaction.categoryName ?? ''}`
+  );
+
+  return text.includes('hipoteca') || text.includes('mortgage');
 }
 
 async function findMortgageLiabilityAsset(workspaceId: string) {

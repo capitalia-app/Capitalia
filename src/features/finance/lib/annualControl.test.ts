@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   calculateVeramarMonthlyBalance,
+  calculatePlatformAvailableCash,
   getAssetPurchaseDisplayName
 } from '@/features/finance/lib/annualControl';
 
@@ -28,5 +29,25 @@ describe('annual control', () => {
         transactionType: 'asset_purchase'
       })
     ).toBe('Fidelity S&P 500');
+  });
+
+  it('calculates platform available cash as transfers minus internal purchases', () => {
+    expect(
+      calculatePlatformAvailableCash({
+        cashFromAssets: 0,
+        purchaseTotal: 1043.72,
+        transferTotal: 4000
+      })
+    ).toBe(2956.28);
+  });
+
+  it('falls back to stored cash when there are no platform flows', () => {
+    expect(
+      calculatePlatformAvailableCash({
+        cashFromAssets: 200,
+        purchaseTotal: 0,
+        transferTotal: 0
+      })
+    ).toBe(200);
   });
 });

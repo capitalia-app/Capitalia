@@ -570,6 +570,7 @@ function buildSavingsSummary(
       platforms: destinations.filter(
         (destination) => !isMainBankDestination(destination)
       ),
+      savingsTransactions,
       year
     }),
     transferRows: savingsTransactions.map((transaction) => ({
@@ -594,11 +595,13 @@ function buildSavingsPlatformBlocks(input: {
   platforms: string[];
   containers: DashboardSummary['containers'];
   assetPurchaseTransactions: AnnualTransaction[];
+  savingsTransactions: AnnualTransaction[];
   year: number;
 }) {
   return input.platforms.map((platform) => {
+    const normalizedPlatform = normalizeText(platform);
     const container = input.containers.find((candidate) =>
-      normalizeText(getContainerLabel(candidate)).includes(normalizeText(platform))
+      normalizeText(getContainerLabel(candidate)).includes(normalizedPlatform)
     );
     const assets = container?.assets ?? [];
     const cashAssets = assets.filter((asset) => asset.assetType === 'cash');
@@ -606,20 +609,46 @@ function buildSavingsPlatformBlocks(input: {
       (asset) => asset.assetType !== 'cash' && asset.assetType !== 'liability'
     );
     const platformPurchases = input.assetPurchaseTransactions.filter((transaction) =>
-      transaction.searchText.includes(normalizeText(platform))
+      transaction.searchText.includes(normalizedPlatform)
     );
+    const platformTransfers = input.savingsTransactions.filter((transaction) =>
+      normalizeText(getTransferDestination(transaction)).includes(normalizedPlatform)
+    );
+    const cashFromAssets = cashAssets.reduce(
+      (total, asset) => total + asset.manualValue,
+      0
+    );
+    const totalInvestment = investmentAssets.reduce(
+      (total, asset) => total + (asset.totalCost ?? asset.manualValue),
+      0
+    );
+    const flowInvestment = sumAbsoluteTransactions(platformPurchases);
+    const transferTotal = sumAbsoluteTransactions(platformTransfers);
 
     return {
       assetRows: buildAssetPurchaseRows(platformPurchases, input.year),
-      currentCash: cashAssets.reduce((total, asset) => total + asset.manualValue, 0),
+      currentCash: calculatePlatformAvailableCash({
+        cashFromAssets,
+        purchaseTotal: flowInvestment,
+        transferTotal
+      }),
       platform,
-      totalInvestment: investmentAssets.reduce(
-        (total, asset) => total + (asset.totalCost ?? asset.manualValue),
-        0
-      ),
+      totalInvestment: totalInvestment || flowInvestment,
       totalValue: assets.reduce((total, asset) => total + asset.manualValue, 0)
     } satisfies SavingsPlatformBlock;
   });
+}
+
+export function calculatePlatformAvailableCash(input: {
+  cashFromAssets: number;
+  purchaseTotal: number;
+  transferTotal: number;
+}) {
+  if (input.transferTotal > 0 || input.purchaseTotal > 0) {
+    return roundCurrency(Math.max(0, input.transferTotal - input.purchaseTotal));
+  }
+
+  return roundCurrency(input.cashFromAssets);
 }
 
 function buildAssetPurchaseRows(transactions: AnnualTransaction[], year: number) {
@@ -988,6 +1017,17 @@ function sumMonthlyAbsolute(transactions: AnnualTransaction[]) {
   });
 
   return values;
+}
+
+function sumAbsoluteTransactions(transactions: AnnualTransaction[]) {
+  return transactions.reduce(
+    (total, transaction) => total + Math.abs(transaction.amount),
+    0
+  );
+}
+
+function roundCurrency(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function createEmptyMonths() {
